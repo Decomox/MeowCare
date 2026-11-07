@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MeowCare – Pahlawan Meow</title>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lucide-react@0.383.0/dist/umd/lucide-react.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<style>
+:root{color-scheme:light;--bg:#fff6ea;--ink:#4a2c1d;--muted:#8a6a58;--card:#fffdf8;--soft:#ffe9d2;--pink:#ffc6d9;--mint:#c9f0d8;--a1:#ff8a4c;--a2:#ff6f9f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#1d1410;--ink:#ffe9d6;--muted:#d1b29d;--card:#2a1d17;--soft:#3a2a20;--pink:#5a2c3e;--mint:#254334}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#1d1410;--ink:#ffe9d6;--muted:#d1b29d;--card:#2a1d17;--soft:#3a2a20;--pink:#5a2c3e;--mint:#254334}
+html{scroll-padding-top:env(safe-area-inset-top,0px);scroll-behavior:smooth}
+html,body{background:var(--bg);color:var(--ink);font-family:'Quicksand','Nunito','Segoe UI',system-ui,sans-serif;font-weight:600}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--card);z-index:45}
+.muted{color:var(--muted)} .soft{background:var(--soft)}
+.card{background:var(--card);border:2.5px solid var(--ink);border-radius:28px 12px 30px 14px/14px 28px 12px 30px;box-shadow:4px 4px 0 var(--ink)}
+.chip{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 10px;border:2px solid var(--ink);border-radius:99px 60px 99px 70px;background:var(--pink)}
+.btn{font-weight:700;border:2.5px solid var(--ink);border-radius:22px 12px 24px 12px/12px 22px 12px 24px;box-shadow:3px 3px 0 var(--ink);transition:transform .15s,box-shadow .15s;cursor:pointer}
+.btn:hover{transform:translate(-1px,-2px) rotate(-1deg);box-shadow:5px 5px 0 var(--ink)}
+.btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.go{background:linear-gradient(120deg,var(--a1),var(--a2));color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
+.ghost{background:var(--card);color:var(--ink)}
+.ok{background:#7ddba0;color:#143d26}.no{background:var(--pink);color:var(--ink)}
+.input{width:100%;padding:.65rem .9rem;background:var(--card);color:var(--ink);border:2.5px solid var(--ink);border-radius:16px 10px 18px 10px;outline:none;font-weight:600}
+.input:focus{box-shadow:3px 3px 0 var(--a1)}
+.frame{position:relative;aspect-ratio:1/1}
+.frame::before,.frame::after{content:"";position:absolute;top:-7%;width:30%;height:30%;background:var(--ink);clip-path:polygon(0 100%,50% 0,100% 100%)}
+.frame::before{left:9%;transform:rotate(-16deg)} .frame::after{right:9%;transform:rotate(16deg)}
+.blob{position:relative;z-index:1;width:100%;height:100%;overflow:hidden;border:3px solid var(--ink);border-radius:58% 42% 55% 45%/52% 56% 44% 48%;background:var(--soft)}
+.ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;background:radial-gradient(circle at 30% 30%,var(--pink),var(--soft))}
+.bar{height:22px;background:var(--soft);border:2.5px solid var(--ink);border-radius:99px 40px 99px 50px;overflow:hidden}
+.bar>div{height:100%;transition:width .8s cubic-bezier(.3,1.4,.5,1);background:repeating-linear-gradient(115deg,var(--a1) 0 14px,#ffa870 14px 28px)}
+.polaroid{background:#fff;padding:6px 6px 10px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink);color:#4a2c1d}
+.fl{position:fixed;z-index:0;pointer-events:none;opacity:.5;animation:fl 9s ease-in-out infinite}
+@keyframes fl{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-28px) rotate(10deg)}}
+@keyframes bounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-8px)}60%{transform:translateY(-3px)}}
+.bnc{animation:bounce 2s ease-in-out infinite}
+@keyframes pop{from{transform:scale(.92) translateY(14px);opacity:0}to{transform:none;opacity:1}} .pop{animation:pop .25s ease-out}
+@keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}} .shake{animation:shake .3s}
+@media (prefers-reduced-motion:reduce){.fl,.bnc,.pop,.shake{animation:none}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+/* ── Port to Next.js page.tsx ──
+   1. First line of the file: "use client";
+   2. import {useState,useEffect,useMemo} from "react"; import * as L from "lucide-react";
+   3. Delete the `const L=window...` line below (Ic works unchanged).
+   4. Swap uploadImage() for a real Supabase Storage upload; swap INITIAL_* for Supabase queries.
+   Suggested tables: cats(id,name,breed,age,traits text[],photo_url,target_amount,current_raised,is_active),
+   donations(id,cat_id,display_name,amount,status,receipt_url,created_at), proofs(id,cat_id,photo_url,note,created_at). */
+const {useState,useEffect,useMemo}=React;
+const L=window.lucideReact||window.LucideReact||{};
+const Ic=({n,size=18,...p})=>{const C=L[n];return C?<C size={size} {...p}/>:<span aria-hidden="true">•</span>};
+const rp=n=>"Rp "+Math.round(n).toLocaleString("id-ID");
+const pctOf=c=>Math.min(100,Math.round(c.currentRaised/c.targetAmount*100));
+/* Simulated storage upload: returns a short URL string, never Base64.
+   Production: const {data}=await supabase.storage.from("meowcare").upload(`${crypto.randomUUID()}-${file.name}`,file);
+   return supabase.storage.from("meowcare").getPublicUrl(data.path).data.publicUrl; */
+const uploadImage=async file=>URL.createObjectURL(file);
+const isLocal=u=>typeof u==="string"&&u.startsWith("blob:");
+const U=id=>`https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=600&q=70`;
+const today=()=>new Date().toISOString().slice(0,10);
+
+const INITIAL_CATS=[
+ {id:1,name:"Mochi",breed:"Domestik Putih",age:"2 tahun",traits:["Manja","Tukang tidur","Suka dielus"],photo:U("1514888286974-6c03e2ca1dba"),targetAmount:20000,currentRaised:13000,isActive:true},
+ {id:2,name:"Si Belang",breed:"Tabby Abu",age:"3 tahun",traits:["Preman","Jago berantem","Setia"],photo:U("1574158622682-e40e69881006"),targetAmount:25000,currentRaised:27000,isActive:true},
+ {id:3,name:"Oyen",breed:"Oren Gembul",age:"1 tahun",traits:["Rakus","Berisik","Lucu"],photo:U("1543852786-1cf6624b9987"),targetAmount:20000,currentRaised:6000,isActive:true},
+ {id:4,name:"Luna",breed:"Hitam Domestik",age:"6 bulan",traits:["Pemalu","Penasaran"],photo:U("1533738363-b7f9aef128ce"),targetAmount:15000,currentRaised:2000,isActive:true},
+ {id:5,name:"Pixel",breed:"Calico",age:"4 tahun",traits:["Sok akrab","Pintar","Cerewet"],photo:U("1495360010541-f48722b34f7d"),targetAmount:20000,currentRaised:17500,isActive:true},
+ {id:6,name:"Tuan Kumis",breed:"Anggora Campur",age:"5 tahun",traits:["Bijak","Kalem"],photo:U("1573865526739-10659fec78a5"),targetAmount:20000,currentRaised:9000,isActive:true},
+ {id:7,name:"Bu Kunyit",breed:"Domestik Oren",age:"7 tahun",traits:["Sesepuh","Galak"],photo:U("1592194996308-7b43878e84a6"),targetAmount:20000,currentRaised:4000,isActive:false},
+];
+const INITIAL_DONATIONS=[
+ {id:1,catId:1,name:"@nadia.mp4",amount:10000,status:"approved",date:"2026-11-01"},
+ {id:2,catId:2,name:"@rizky_tiktok",amount:25000,status:"approved",date:"2026-11-02"},
+ {id:3,catId:5,name:"@nadia.mp4",amount:7500,status:"approved",date:"2026-11-03"},
+ {id:4,catId:3,name:"Kak Sinta",amount:6000,status:"approved",date:"2026-11-03"},
+ {id:5,catId:6,name:"@rizky_tiktok",amount:9000,status:"approved",date:"2026-11-04"},
+ {id:6,catId:1,name:"@bintang.id",amount:3000,status:"approved",date:"2026-11-04"},
+ {id:7,catId:2,name:"@dewi.cat",amount:2000,status:"approved",date:"2026-11-05"},
+ {id:8,catId:5,name:"Anonim",amount:10000,status:"approved",date:"2026-11-05"},
+ {id:9,catId:4,name:"@bintang.id",amount:2000,status:"approved",date:"2026-11-06"},
+ {id:10,catId:3,name:"@fajar.gram",amount:5000,status:"pending",date:"2026-11-07"},
+ {id:11,catId:1,name:"@dewi.cat",amount:4000,status:"pending",date:"2026-11-07"},
+ {id:12,catId:4,name:"Anonim",amount:8000,status:"pending",date:"2026-11-07"},
+ {id:13,catId:7,name:"@Bintang.ID",amount:4000,status:"approved",date:"2026-11-06"},
+ {id:14,catId:1,name:"@Nadia.mp4",amount:3000,status:"approved",date:"2026-11-06"},
+];
+const INITIAL_PROOFS=[
+ {id:1,catId:1,photo:U("1514888286974-6c03e2ca1dba"),date:"2026-10-12",note:"Lahap banget makan ayam suwir!"},
+ {id:2,catId:1,photo:U("1574158622682-e40e69881006"),date:"2026-10-26",note:"Makan sambil ngeong tanda terima kasih."},
+ {id:3,catId:2,photo:U("1543852786-1cf6624b9987"),date:"2026-10-20",note:"Si Belang kenyang, langsung tidur di bawah motor."},
+ {id:4,catId:3,photo:U("1495360010541-f48722b34f7d"),date:"2026-10-30",note:"Oyen habis dua porsi. Beneran rakus."},
+ {id:5,catId:5,photo:U("1573865526739-10659fec78a5"),date:"2026-10-18",note:"Pixel makan di kantin, ditonton anak kampus."},
+ {id:6,catId:6,photo:U("1533738363-b7f9aef128ce"),date:"2026-10-24",note:"Tuan Kumis makan kalem seperti biasa."},
+];
+
+const Photo=({src,alt})=>{const[bad,setBad]=useState(false);useEffect(()=>setBad(false),[src]);
+ return(!src||bad)?<div className="ph" role="img" aria-label={alt}>🐱</div>:<img src={src} alt={alt} loading="lazy" onError={()=>setBad(true)} className="w-full h-full object-cover"/>};
+const CatFrame=({src,alt,className=""})=><div className={"frame "+className}><div className="blob"><Photo src={src} alt={alt}/></div></div>;
+
+const HungerBar=({cat})=>{const p=pctOf(cat),extra=Math.max(0,cat.currentRaised-cat.targetAmount);
+ return(<div>
+  <div className="flex justify-between font-bold text-sm mb-1.5"><span>Hunger Bar {p>=100?"😻":p>=50?"😺":"🥺"}</span><span>{p}%</span></div>
+  <div className="bar" role="progressbar" aria-valuenow={p} aria-valuemin="0" aria-valuemax="100"><div style={{width:p+"%"}}/></div>
+  <div className="flex justify-between text-xs muted mt-1.5"><span>{rp(cat.currentRaised)}</span><span>target {rp(cat.targetAmount)}</span></div>
+  {extra>0&&<div className="text-xs mt-1 font-bold" style={{color:"var(--a2)"}}>+{rp(extra)} kelebihan, otomatis jadi bekal siklus berikutnya 💝</div>}
+ </div>)};
+
+const MockQR=()=>{const N=25,c=[];let s=7;const r=()=>((s=(s*1664525+1013904223)%4294967296)/4294967296);
+ const f=(x,y)=>(x<8&&y<8)||(x>N-9&&y<8)||(x<8&&y>N-9);
+ for(let y=0;y<N;y++)for(let x=0;x<N;x++)if(!f(x,y)&&r()>.5)c.push(<rect key={x+"_"+y} x={x} y={y} width="1" height="1"/>);
+ const E=({x,y})=><g><rect x={x} y={y} width="7" height="7"/><rect x={x+1} y={y+1} width="5" height="5" fill="#fff"/><rect x={x+2} y={y+2} width="3" height="3"/></g>;
+ return <svg viewBox={`-1 -1 ${N+2} ${N+2}`} className="w-full h-full" fill="#222"><rect x="-1" y="-1" width={N+2} height={N+2} fill="#fff"/>{c}<E x={0} y={0}/><E x={N-7} y={0}/><E x={0} y={N-7}/></svg>};
+
+const Modal=({onClose,children,label})=>{
+ useEffect(()=>{const o=document.body.style.overflow;document.body.style.overflow="hidden";const k=e=>e.key==="Escape"&&onClose();window.addEventListener("keydown",k);return()=>{document.body.style.overflow=o;window.removeEventListener("keydown",k)}},[]);
+ return(<div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3" style={{background:"rgba(40,20,10,.55)"}} onClick={onClose}>
+  <div role="dialog" aria-label={label} className="card pop w-full sm:max-w-lg max-h-[92vh] overflow-y-auto relative" onClick={e=>e.stopPropagation()}>
+   <button onClick={onClose} aria-label="Tutup" className="btn ghost absolute top-3 right-3 z-10 w-9 h-9 flex items-center justify-center"><Ic n="X" size={16}/></button>
+   {children}</div></div>)};
+
+const Upload=({file,onFile,label,icon="Upload"})=>(
+ <label className="btn ghost flex items-center justify-center gap-2 px-4 py-2.5 text-sm" style={{borderStyle:"dashed"}}>
+  <Ic n={icon} size={16}/><span className="truncate">{file?"✓ "+file:label}</span>
+  <input type="file" accept="image/*" className="hidden" onChange={async e=>{const f=e.target.files[0];if(f)onFile(await uploadImage(f),f.name)}}/></label>);
+
+const PayModal=({cat,onClose,onSubmit})=>{
+ const[step,setStep]=useState(1),[amount,setAmount]=useState(""),[name,setName]=useState(""),[rec,setRec]=useState(null);
+ const n=parseInt(amount||"0",10),ok=n>=1000&&rec;
+ return(<Modal onClose={onClose} label="Donasi QRIS"><div className="p-6">
+  <h3 className="text-xl font-bold pr-10">Beri makan {cat.name} 🍗</h3>
+  {step===1?<>
+   <p className="muted text-sm mt-1">Scan QRIS, transfer nominal sesukamu. Tanpa login, tanpa ribet!</p>
+   <div className="w-56 h-56 mx-auto my-4 p-2 bg-white card bnc"><MockQR/></div>
+   <button className="btn go w-full py-3" onClick={()=>setStep(2)}>Sudah transfer → isi bukti</button>
+  </>:<div className="space-y-3 mt-2">
+   <div><label className="text-sm font-bold">Nominal donasi (Rp)</label>
+    <input className="input mt-1 text-lg" type="number" inputMode="numeric" min="1000" placeholder="contoh: 5000" value={amount} onChange={e=>setAmount(e.target.value)}/>
+    <div className="flex gap-2 flex-wrap mt-2">{[2000,5000,10000,20000].map(v=><button key={v} className="chip" onClick={()=>setAmount(String(v))}>{rp(v)}</button>)}</div></div>
+   <div><label className="text-sm font-bold">Display Name (IG/TikTok atau Anonim)</label>
+    <input className="input mt-1" placeholder="@usernamekamu" value={name} onChange={e=>setName(e.target.value)} maxLength={30}/>
+    <p className="text-xs muted mt-1">Nama ini tampil di papan Pahlawan Meow. Huruf besar/kecil tidak dibedakan, jadi total donasimu tetap menyatu.</p></div>
+   <Upload file={rec&&rec.name} onFile={(d,nm)=>setRec({data:d,name:nm})} label="Upload bukti transfer"/>
+   <button disabled={!ok} className="btn go w-full py-3" onClick={()=>{onSubmit({catId:cat.id,name:name.trim()||"Anonim",amount:n,receipt:rec.data});onClose()}}>Kirim bukti donasi 💌</button>
+   {!ok&&<p className="text-xs muted text-center">Minimal Rp 1.000 + bukti transfer wajib.</p>}
+  </div>}
+ </div></Modal>)};
+
+const ProfileModal=({cat,proofs,onClose,onFeed})=>{
+ const mine=proofs.filter(p=>p.catId===cat.id).sort((a,b)=>b.date.localeCompare(a.date));
+ return(<Modal onClose={onClose} label={"Profil "+cat.name}>
+  <div className="p-6 pt-8">
+   <div className="w-44 mx-auto"><CatFrame src={cat.photo} alt={cat.name}/></div>
+   <h3 className="text-2xl font-bold text-center mt-4">{cat.name}</h3>
+   <p className="text-center muted text-sm">{cat.breed} · {cat.age}</p>
+   <div className="flex gap-1.5 flex-wrap justify-center mt-2">{cat.traits.map(t=><span key={t} className="chip">{t}</span>)}</div>
+   <div className="mt-5"><HungerBar cat={cat}/></div>
+   {pctOf(cat)>=100
+    ?<div className="card soft p-3 mt-4 text-center text-sm font-bold">🎉 Target tercapai! Relawan segera memberi makan {cat.name}. Kamu tetap bisa nabung bekal untuk siklus berikutnya.</div>:null}
+   <button className="btn go w-full py-3.5 mt-4 text-lg flex items-center justify-center gap-2" onClick={onFeed}><Ic n="Heart" size={20}/> Beri Makan</button>
+   <h4 className="font-bold text-lg mt-7 mb-3 flex items-center gap-2"><Ic n="BookOpen" size={18}/> Buku Harian {cat.name}</h4>
+   {mine.length===0?<p className="muted text-sm">Belum ada foto makan. Jadilah yang pertama! 🐾</p>:
+    <ol className="space-y-5 border-l-[3px] border-dashed pl-5" style={{borderColor:"var(--ink)"}}>
+     {mine.map((p,i)=><li key={p.id} className="relative">
+      <span className="absolute -left-[31px] top-2 text-lg">🐾</span>
+      <div className="flex gap-3 items-start">
+       <div className="polaroid w-24 shrink-0" style={{transform:`rotate(${i%2?3:-3}deg)`}}><div className="aspect-square overflow-hidden"><Photo src={p.photo} alt={"Bukti makan "+cat.name}/></div></div>
+       <div><div className="text-xs font-bold" style={{color:"var(--a2)"}}>{p.date}</div><p className="text-sm">{p.note}</p></div>
+      </div></li>)}
+    </ol>}
+  </div></Modal>)};
+
+const CatCard=({cat,i,onOpen})=>{const p=pctOf(cat);
+ return(<button onClick={onOpen} className="card p-4 pt-6 text-left transition hover:-translate-y-1" style={{transform:`rotate(${[-1,1,-.5][i%3]}deg)`}}>
+  <div className="w-3/4 mx-auto"><CatFrame src={cat.photo} alt={cat.name}/></div>
+  <div className="flex justify-between items-center mt-4"><h3 className="font-bold text-lg">{cat.name}</h3><span className="text-xs font-bold">{p>=100?"Siap makan 🍽️":p+"%"}</span></div>
+  <p className="text-xs muted mb-2">{cat.breed} · {cat.age}</p>
+  <div className="flex gap-1 flex-wrap mb-3">{cat.traits.slice(0,2).map(t=><span key={t} className="chip">{t}</span>)}</div>
+  <div className="bar" style={{height:14}}><div style={{width:p+"%"}}/></div></button>)};
+
+const PublicView=({cats,donations,proofs,onOpen})=>{
+ /* Case-insensitive grouping (key = lowercase); label = casing of the donor's most recent donation.
+  Counts ALL approved donations, including those given to inactive (soft-deleted) cats. */
+ const board=useMemo(()=>{const m={};
+  [...donations].filter(d=>d.status==="approved").sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id).forEach(d=>{
+   const label=d.name.trim(),k=label.toLowerCase();if(!k||k==="anonim")return;
+   const e=m[k]||(m[k]={name:label,total:0,n:0});e.name=label;e.total+=d.amount;e.n++});
+  return Object.values(m).sort((a,b)=>b.total-a.total).slice(0,5)},[donations]);
+ const total=donations.filter(d=>d.status==="approved").reduce((a,d)=>a+d.amount,0);
+ const medal=["🥇","🥈","🥉","4","5"];
+ return(<>
+  <section className="max-w-5xl mx-auto px-5 pt-10 pb-6 grid md:grid-cols-2 gap-8 items-center">
+   <div>
+    <span className="chip">🐾 100% receh, 100% nyata</span>
+    <h1 className="text-4xl sm:text-5xl font-bold leading-tight mt-3">Perut kenyang,<br/>hati <span style={{color:"var(--a2)"}}>meong</span> senang.</h1>
+    <p className="muted mt-4 max-w-md">Patungan receh mulai Rp 1.000 buat kasih makan kucing jalanan. Tanpa login, cukup tulis nama IG/TikTok-mu. Setiap bar penuh, relawan kami kasih makan dan upload fotonya ke Buku Harian.</p>
+    <div className="flex gap-3 mt-6 flex-wrap">
+     <a href="#kucing" className="btn go px-6 py-3 bnc">Cari kucing lapar 🐱</a>
+     <a href="#pahlawan" className="btn ghost px-6 py-3">Lihat Pahlawan 🏆</a></div>
+    <div className="grid grid-cols-3 gap-3 mt-7 max-w-sm text-center">
+     {[[rp(total),"terkumpul"],[proofs.length+"×","kenyang"],[cats.length,"kucing"]].map(([a,b])=><div key={b} className="card py-2 px-1"><div className="font-bold">{a}</div><div className="text-[11px] muted">{b}</div></div>)}</div>
+   </div>
+   <div className="relative max-w-xs mx-auto w-full">
+    <CatFrame src={cats[0]&&cats[0].photo} alt="Kucing MeowCare"/>
+    <span className="card absolute z-20 -bottom-4 -left-2 px-3 py-1.5 text-sm font-bold whitespace-nowrap" style={{transform:"rotate(-6deg)",background:"var(--pink)",zIndex:20}}>Rp 1.000 = 1 suap 🍗</span>
+    <span className="absolute -top-4 right-0 z-20 text-4xl bnc" aria-hidden="true">🐾</span>
+   </div>
+  </section>
+
+  <section id="pahlawan" className="max-w-5xl mx-auto px-5 py-8">
+   <h2 className="text-2xl font-bold flex items-center gap-2"><Ic n="Trophy" size={24}/> Pahlawan Meow</h2>
+   <p className="muted text-sm mb-4">Donatur teratas, dihitung dari Display Name (huruf besar/kecil dianggap sama).</p>
+   <div className="grid sm:grid-cols-2 gap-3">
+    {board.length===0&&<div className="card p-5 muted">Belum ada pahlawan. Jadi yang pertama!</div>}
+    {board.map((b,i)=><div key={b.name} className="card p-3.5 flex items-center gap-3" style={i===0?{background:"var(--pink)"}:null}>
+     <div className="text-2xl w-9 text-center">{medal[i]}</div>
+     <div className="flex-1 min-w-0"><div className="font-bold truncate">{b.name}</div><div className="text-xs muted">{b.n} kali donasi</div></div>
+     <div className="font-bold">{rp(b.total)}</div></div>)}
+   </div>
+  </section>
+
+  <section id="kucing" className="max-w-5xl mx-auto px-5 py-8">
+   <h2 className="text-2xl font-bold">Kucing yang nunggu kamu</h2>
+   <p className="muted text-sm mb-6">Ketuk untuk lihat profil, Buku Harian, dan kasih makan.</p>
+   <div className="grid grid-cols-2 lg:grid-cols-3 gap-5">{cats.map((c,i)=><CatCard key={c.id} cat={c} i={i} onOpen={()=>onOpen(c.id)}/>)}</div>
+  </section></>)};
+
+const CatForm=({cat,onClose,onSave})=>{
+ const[f,setF]=useState(cat?{...cat,traits:cat.traits.join(", ")}:{name:"",breed:"",age:"",traits:"",targetAmount:20000,photo:""});
+ const set=(k,v)=>setF(s=>({...s,[k]:v}));const ok=f.name.trim()&&+f.targetAmount>0;
+ return(<Modal onClose={onClose} label="Form kucing"><div className="p-6 space-y-3">
+  <h3 className="text-xl font-bold pr-10">{cat?"Edit":"Tambah"} kucing</h3>
+  <div className="w-28 mx-auto"><CatFrame src={f.photo} alt="Preview"/></div>
+  <input className="input" placeholder="Nama" value={f.name} onChange={e=>set("name",e.target.value)}/>
+  <div className="grid grid-cols-2 gap-2"><input className="input" placeholder="Ras" value={f.breed} onChange={e=>set("breed",e.target.value)}/><input className="input" placeholder="Umur (2 tahun)" value={f.age} onChange={e=>set("age",e.target.value)}/></div>
+  <input className="input" placeholder="Sifat, pisah koma (Manja, Preman)" value={f.traits} onChange={e=>set("traits",e.target.value)}/>
+  <input className="input" type="number" min="1000" placeholder="Target (Rp)" value={f.targetAmount} onChange={e=>set("targetAmount",e.target.value)}/>
+  <input className="input" placeholder="URL foto (https://...)" value={isLocal(f.photo)?"":f.photo} onChange={e=>set("photo",e.target.value)}/>
+  <Upload file={isLocal(f.photo)?"foto dipilih":""} onFile={d=>set("photo",d)} label="…atau pilih foto dari perangkat" icon="Camera"/>
+  <button disabled={!ok} className="btn go w-full py-3" onClick={()=>{onSave({...f,name:f.name.trim(),targetAmount:+f.targetAmount,traits:f.traits.split(",").map(t=>t.trim()).filter(Boolean)});onClose()}}>Simpan</button>
+ </div></Modal>)};
+
+const FeedRow=({cat,onDone})=>{const[ph,setPh]=useState(null),[note,setNote]=useState("");
+ return(<div className="card p-4 space-y-3">
+  <div className="flex items-center gap-3"><div className="w-14"><CatFrame src={cat.photo} alt={cat.name}/></div>
+   <div><div className="font-bold">{cat.name}</div><div className="text-xs muted">{rp(cat.currentRaised)} / {rp(cat.targetAmount)}{cat.currentRaised>cat.targetAmount?` · sisa ${rp(cat.currentRaised-cat.targetAmount)} dibawa ke siklus baru`:""}</div></div></div>
+  <input className="input" placeholder="Catatan Buku Harian (opsional)" value={note} onChange={e=>setNote(e.target.value)}/>
+  <Upload file={ph&&ph.name} onFile={(d,n)=>setPh({data:d,name:n})} label="Foto kucing lagi makan" icon="Camera"/>
+  <button disabled={!ph} className="btn ok w-full py-2.5" onClick={()=>onDone(cat.id,ph.data,note)}>Konfirmasi: kurangi target &amp; catat di timeline</button></div>)};
+
+const Login=({onLogin})=>{const[pw,setPw]=useState(""),[err,setErr]=useState(0);
+ const go=()=>pw==="admin123"?onLogin():(setErr(e=>e+1),setPw(""));
+ return(<div className="max-w-sm mx-auto px-5 py-16"><div key={err} className={"card p-6 text-center "+(err?"shake":"")}>
+  <div className="text-5xl bnc">🔐</div><h2 className="text-xl font-bold mt-2">Area Admin</h2><p className="text-sm muted mb-4">Khusus relawan & pengelola MeowCare.</p>
+  <input className="input" type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()}/>
+  {err>0&&<p className="text-sm mt-2 font-bold" style={{color:"var(--a2)"}}>Password salah, coba lagi.</p>}
+  <button className="btn go w-full py-3 mt-4" onClick={go}>Masuk</button>
+  <p className="text-xs muted mt-3">Demo: admin123</p></div></div>)};
+
+const Admin=({cats,donations,proofs,h})=>{
+ const[tab,setTab]=useState("verify"),[form,setForm]=useState(null),[del,setDel]=useState(null);
+ const pending=donations.filter(d=>d.status==="pending"),full=cats.filter(c=>c.isActive&&c.currentRaised>=c.targetAmount);
+ const nameOf=id=>{const c=cats.find(x=>x.id===id);return c?c.name+(c.isActive?"":" (nonaktif)"):"(tidak ada)"};
+ const tabs=[["verify","Verifikasi",pending.length],["cats","Kucing",cats.filter(c=>c.isActive).length],["feed","Bukti Makan",full.length]];
+ return(<div className="max-w-5xl mx-auto px-5 py-8">
+  <div className="flex gap-2 flex-wrap mb-6">{tabs.map(([k,l,n])=><button key={k} onClick={()=>setTab(k)} className={"btn px-4 py-2 text-sm "+(tab===k?"go":"ghost")}>{l} <span className="opacity-80">({n})</span></button>)}</div>
+  {tab==="verify"&&<div className="card overflow-x-auto"><table className="w-full text-sm min-w-[620px]">
+   <thead><tr className="text-left muted text-xs uppercase">{["Display Name","Kucing","Nominal","Bukti","Aksi"].map(x=><th key={x} className="px-4 py-3">{x}</th>)}</tr></thead>
+   <tbody>{pending.length===0&&<tr><td colSpan="5" className="p-8 text-center muted">Semua donasi sudah dicek 🎉</td></tr>}
+    {pending.map(d=><tr key={d.id} className="border-t-2" style={{borderColor:"var(--soft)"}}>
+     <td className="px-4 py-3 font-bold">{d.name}</td><td className="px-4 py-3">{nameOf(d.catId)}</td><td className="px-4 py-3 font-bold">{rp(d.amount)}</td>
+     <td className="px-4 py-3">{d.receipt?<img src={d.receipt} alt="Bukti" className="w-9 h-9 object-cover rounded-lg border-2" style={{borderColor:"var(--ink)"}}/>:<Ic n="Receipt" size={20}/>}</td>
+     <td className="px-4 py-3"><div className="flex gap-2"><button className="btn ok px-3 py-1.5 flex items-center gap-1" onClick={()=>h.approve(d)}><Ic n="Check" size={14}/>Approve</button><button className="btn no px-3 py-1.5" aria-label="Reject" onClick={()=>h.reject(d)}><Ic n="X" size={14}/></button></div></td></tr>)}
+   </tbody></table></div>}
+  {tab==="cats"&&<div>
+   <p className="muted text-sm mb-3">Menghapus = menonaktifkan (soft delete). Kucing hilang dari halaman publik, tapi donasinya tetap dihitung di total &amp; leaderboard.</p>
+   <button className="btn go px-5 py-2.5 mb-4 flex items-center gap-2" onClick={()=>setForm({})}><Ic n="Plus" size={16}/>Tambah Kucing</button>
+   <div className="grid sm:grid-cols-2 gap-4">{cats.map(c=><div key={c.id} className="card p-3 flex gap-3 items-center" style={c.isActive?null:{opacity:.65}}>
+    <div className="w-16 shrink-0"><CatFrame src={c.photo} alt={c.name}/></div>
+    <div className="flex-1 min-w-0"><div className="font-bold">{c.name}{!c.isActive&&<span className="chip ml-2">nonaktif</span>}</div><div className="text-xs muted truncate">{c.breed} · {c.age}</div><div className="text-xs">{rp(c.currentRaised)} / {rp(c.targetAmount)}</div></div>
+    <div className="flex flex-col gap-1.5">
+     <button className="btn ghost px-2.5 py-1" aria-label="Edit" onClick={()=>setForm(c)}><Ic n="Pencil" size={14}/></button>
+     {!c.isActive?<button className="btn ok px-2 py-1 text-xs" onClick={()=>h.setActive(c.id,true)}>Aktifkan</button>:del===c.id?<button className="btn no px-2 py-1 text-xs" onClick={()=>{h.setActive(c.id,false);setDel(null)}}>Yakin?</button>:<button className="btn no px-2.5 py-1" aria-label="Nonaktifkan" onClick={()=>setDel(c.id)}><Ic n="EyeOff" size={14}/></button>}
+    </div></div>)}</div></div>}
+  {tab==="feed"&&<div className="space-y-4">
+   <p className="muted text-sm">Kucing yang Hunger Bar-nya sudah 100%. Setelah konfirmasi, target dikurangkan dari total (kelebihan tidak hilang).</p>
+   {full.length===0&&<div className="card p-6 text-center muted">Belum ada kucing yang penuh.</div>}
+   {full.map(c=><FeedRow key={c.id} cat={c} onDone={h.fed}/>)}</div>}
+  {form&&<CatForm cat={form.id?form:null} onClose={()=>setForm(null)} onSave={h.save}/>}
+ </div>)};
+
+function App(){
+ const[view,setView]=useState("public"),[auth,setAuth]=useState(false);
+ const[cats,setCats]=useState(INITIAL_CATS),[donations,setDonations]=useState(INITIAL_DONATIONS),[proofs,setProofs]=useState(INITIAL_PROOFS);
+ const[openId,setOpenId]=useState(null),[payId,setPayId]=useState(null),[toast,setToast]=useState("");
+ useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(""),2800);return()=>clearTimeout(t)},[toast]);
+ const openCat=cats.find(c=>c.id===openId),payCat=cats.find(c=>c.id===payId);
+ const h={
+  approve:d=>{setCats(cs=>cs.map(c=>c.id===d.catId?{...c,currentRaised:c.currentRaised+d.amount}:c));setDonations(ds=>ds.map(x=>x.id===d.id?{...x,status:"approved"}:x));setToast(rp(d.amount)+" masuk ke Hunger Bar ✅")},
+  reject:d=>setDonations(ds=>ds.map(x=>x.id===d.id?{...x,status:"rejected"}:x)),
+  fed:(id,photo,note)=>{setCats(cs=>cs.map(c=>c.id===id?{...c,currentRaised:Math.max(0,c.currentRaised-c.targetAmount)}:c));setProofs(p=>[{id:Date.now(),catId:id,photo,date:today(),note:note||"Kenyang dan bahagia!"},...p]);setToast("Bukti tercatat di Buku Harian 📖")},
+  save:c=>{c.id?setCats(cs=>cs.map(x=>x.id===c.id?{...x,...c}:x)):setCats(cs=>[...cs,{...c,id:Date.now(),currentRaised:0,isActive:true}]);setToast("Data kucing disimpan 🐱")},
+  setActive:(id,active)=>{setCats(cs=>cs.map(c=>c.id===id?{...c,isActive:active}:c));setToast(active?"Kucing diaktifkan lagi 🐱":"Kucing dinonaktifkan. Donasi tetap tercatat.")},
+ };
+ const submit=d=>{setDonations(ds=>[{...d,id:Date.now(),status:"pending",date:today()},...ds]);setToast("Makasih, "+d.name+"! Bukti dicek admin dulu ya 💌")};
+ const floaters=[["🐾","6%","12%",0],["🐟","88%","20%",2],["🐾","80%","60%",4],["🐟","12%","70%",1],["🐾","50%","85%",3]];
+ return(<div className="min-h-screen relative">
+  {floaters.map(([e,l,t,d],i)=><span key={i} className="fl text-3xl" aria-hidden="true" style={{left:l,top:t,animationDelay:d+"s"}}>{e}</span>)}
+  <header className="sticky z-40 border-b-[3px]" style={{top:"env(safe-area-inset-top,0px)",background:"var(--card)",borderColor:"var(--ink)"}}>
+   <div className="max-w-5xl mx-auto px-5 py-2.5 flex items-center justify-between">
+    <button onClick={()=>setView("public")} className="font-bold text-2xl flex items-center gap-1.5">🐾 Meow<span style={{color:"var(--a2)"}}>Care</span></button>
+    <div className="flex gap-2">
+     {view==="admin"&&auth&&<button className="btn ghost px-3 py-1.5 text-sm flex items-center gap-1" onClick={()=>{setAuth(false);setView("public")}}><Ic n="LogOut" size={14}/>Keluar</button>}
+     <button className="btn ghost px-3 py-1.5 text-sm flex items-center gap-1" onClick={()=>setView(view==="public"?"admin":"public")}>{view==="public"?<><Ic n="Lock" size={14}/>Admin</>:"← Publik"}</button></div>
+   </div></header>
+  <main className="relative z-10">
+   {view==="public"?<PublicView cats={cats.filter(c=>c.isActive)} donations={donations} proofs={proofs} onOpen={setOpenId}/>:auth?<Admin cats={cats} donations={donations} proofs={proofs} h={h}/>:<Login onLogin={()=>setAuth(true)}/>}
+  </main>
+  <footer className="relative z-10 text-center text-xs muted py-8">Dibuat dengan 🧡 untuk kucing jalanan</footer>
+  {openCat&&!payCat&&<ProfileModal cat={openCat} proofs={proofs} onClose={()=>setOpenId(null)} onFeed={()=>setPayId(openCat.id)}/>}
+  {payCat&&<PayModal cat={payCat} onClose={()=>setPayId(null)} onSubmit={submit}/>}
+  {toast&&<div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] pop btn go px-5 py-3 text-sm">{toast}</div>}
+ </div>)}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
