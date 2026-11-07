@@ -2,11 +2,11 @@
 /* eslint-disable @next/next/no-img-element, @typescript-eslint/no-explicit-any */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, CSSProperties } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
   Heart, X, Check, Camera, Receipt, Trophy, BookOpen, Plus, Pencil, EyeOff, LogOut, Lock,
-  Upload as UploadIcon, MapPin, Moon, Sun, Share2
+  Upload as UploadIcon, MapPin, Moon, Sun, Share2, ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 /* ───────────────────────── Supabase ───────────────────────── */
@@ -15,6 +15,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
 const BUCKET = 'meowcare';
+const MAX_GALLERY = 6; // extra photos per cat, keeps storage and bandwidth in check
 const THEME_KEY = 'meowcare-theme';
 const ABOUT_KEY = 'about_us';
 const DEFAULT_ABOUT = `MeowCare lahir dari keresahan sederhana: banyak kucing jalanan yang kelaparan, sementara banyak orang ingin membantu tapi bingung caranya.
@@ -31,6 +32,7 @@ interface Cat {
   id: ID; name: string; breed: string; age: string; traits: string[];
   photo: string; targetAmount: number; currentRaised: number; isActive: boolean;
   lat: number | null; lng: number | null;
+  gallery: string[]; videoUrl: string;
 }
 interface Donation {
   id: ID; catId: ID; name: string; amount: number; status: DonationStatus;
@@ -39,7 +41,7 @@ interface Donation {
 interface Proof { id: ID; catId: ID; photo: string; note: string; cost: number; createdAt: string }
 interface CatPayload {
   id?: ID; name: string; breed: string; age: string; traits: string[]; targetAmount: number; photo: string;
-  lat: number | null; lng: number | null;
+  lat: number | null; lng: number | null; gallery: string[]; videoUrl: string;
 }
 interface NewDonation { catId: ID; name: string; amount: number; receipt: string }
 interface LedgerEntry { id: string; date: string; type: 'in' | 'out'; catName: string; label: string; amount: number }
@@ -50,6 +52,7 @@ interface Handlers {
   save(c: CatPayload): Promise<void>;
   setActive(id: ID, active: boolean): Promise<void>;
   saveAbout(text: string): Promise<void>;
+  removeCat(id: ID): Promise<void>;
 }
 
 /* DB row → UI model */
@@ -58,6 +61,8 @@ const toCat = (r: Row): Cat => ({
   photo: r.photo_url ?? '', targetAmount: Number(r.target_amount), currentRaised: Number(r.current_raised),
   isActive: r.is_active !== false,
   lat: r.lat ? Number(r.lat) : null, lng: r.lng ? Number(r.lng) : null,
+  gallery: Array.isArray(r.gallery) ? r.gallery.filter((x: unknown): x is string => typeof x === 'string' && !!x) : [],
+  videoUrl: r.video_url ?? '',
 });
 const toDonation = (r: Row): Donation => ({
   id: r.id, catId: r.cat_id, name: r.display_name ?? 'Anonim', amount: Number(r.amount),
@@ -71,6 +76,40 @@ const toProof = (r: Row): Proof => ({
 const rp = (n: number) => 'Rp ' + Math.round(n).toLocaleString('id-ID');
 const pctOf = (c: Cat) => Math.min(100, Math.round((c.currentRaised / c.targetAmount) * 100));
 
+/* ───────────────────────── SFX (native HTML5 Audio, zero dependencies) ───────────────────────── */
+type Sfx = 'meow' | 'coin';
+const SFX_SRC: Record<Sfx, string> = { meow: '/meow.mp3', coin: '/coin.mp3' };
+const sfxPool: Partial<Record<Sfx, HTMLAudioElement>> = {};
+
+/* One reusable <audio> per sound, created lazily so nothing downloads until the first tap */
+const getSfx = (name: Sfx): HTMLAudioElement => (sfxPool[name] ??= new Audio(SFX_SRC[name]));
+
+/* Never throws: autoplay blocks, missing files and unsupported browsers all stay silent */
+function playSfx(name: Sfx, volume = 0.7) {
+  if (typeof window === 'undefined') return;
+  try {
+    const a = getSfx(name);
+    a.muted = false;
+    a.volume = volume;
+    a.currentTime = 0;
+    a.play()?.catch(() => { /* autoplay blocked or file missing */ });
+  } catch { /* Audio API unavailable */ }
+}
+
+/* iOS Safari only lets an <audio> element play later (e.g. after an await) once it has been played inside a tap.
+   So on the very first tap we silently "prime" every sound that is not already playing. */
+function unlockSfx() {
+  (Object.keys(SFX_SRC) as Sfx[]).forEach(name => {
+    try {
+      const a = getSfx(name);
+      if (!a.paused) return; // already played for real inside this tap, so it is unlocked
+      a.muted = true;
+      a.play()?.then(() => { a.pause(); a.currentTime = 0; a.muted = false; })
+        .catch(() => { a.muted = false; });
+    } catch { /* ignore */ }
+  });
+}
+
 /* Money in (approved donations) + money out (feeding costs), newest first */
 const buildLedger = (cats: Cat[], donations: Donation[], proofs: Proof[]): LedgerEntry[] => {
   const nameOf = (id: ID) => cats.find(c => String(c.id) === String(id))?.name ?? 'Kucing dihapus';
@@ -83,19 +122,44 @@ const buildLedger = (cats: Cat[], donations: Donation[], proofs: Proof[]): Ledge
   return [...income, ...expense].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
 
+/* Shrinks big phone photos before upload so they cost far less storage and bandwidth */
+async function compressImage(file: File, maxSide = 1280, quality = 0.82): Promise<File> {
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 250 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.fillStyle = '#fff'; // JPEG has no transparency
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    bmp.close();
+    const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', quality));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
 async function uploadImage(file: File, folder: string): Promise<string> {
   if (file.size > 5 * 1024 * 1024) throw new Error('Ukuran foto maksimal 5 MB');
-  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  // Receipts stay untouched so the admin can still read them
+  const f = folder === 'receipts' ? file : await compressImage(file);
+  const ext = f.name.split('.').pop()?.toLowerCase() || 'jpg';
   const path = `${folder}/${crypto.randomUUID()}.${ext}`;
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type });
+    .upload(path, f, { cacheControl: '31536000', upsert: false, contentType: f.type }); // file names are unique, so cache for a year
   if (error) throw error;
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
 /* ───────────────────────── Icons ───────────────────────── */
-const ICONS = { Heart, X, Check, Camera, Receipt, Trophy, BookOpen, Plus, Pencil, EyeOff, LogOut, Lock, Upload: UploadIcon, MapPin, Moon, Sun, Share2 };
+const ICONS = { Heart, X, Check, Camera, Receipt, Trophy, BookOpen, Plus, Pencil, EyeOff, LogOut, Lock, Upload: UploadIcon, MapPin, Moon, Sun, Share2, ChevronLeft, ChevronRight };
 type IconName = keyof typeof ICONS;
 const Ic = ({ n, size = 18 }: { n: IconName; size?: number }) => {
   const C = ICONS[n];
@@ -146,6 +210,54 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 @keyframes bounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-8px)}60%{transform:translateY(-3px)}}
 .bnc{animation:bounce 2s ease-in-out infinite}
 @keyframes pop{from{transform:scale(.92) translateY(14px);opacity:0}to{transform:none;opacity:1}} .pop{animation:pop .25s ease-out}
+
+/* ANIMATIONS & MICRO-INTERACTIONS */
+@keyframes fade-in-up{from{opacity:0;transform:translateY(24px) rotate(var(--rot,0deg))}to{opacity:1;transform:translateY(0) rotate(var(--rot,0deg))}}
+.reveal{opacity:0}
+.reveal.in{opacity:1;animation:fade-in-up .6s cubic-bezier(.2,.8,.2,1) var(--delay,0ms) backwards}
+.cat-card{transform:rotate(var(--rot,0deg));transition:transform .2s ease}
+.cat-card:hover{transform:translateY(-4px) rotate(var(--rot,0deg))}
+@keyframes pulse{0%,100%{box-shadow:3px 3px 0 var(--ink),0 0 0 0 rgba(255,111,159,.6)}50%{box-shadow:3px 3px 0 var(--ink),0 0 0 12px rgba(255,111,159,0)}}
+.pulse{animation:pulse 1.8s ease-out infinite}
+.pulse:hover{animation:none}
+
+/* PHOTO SLIDER */
+.slider{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;aspect-ratio:4/3;border:3px solid var(--ink);border-radius:26px 14px 28px 14px;background:var(--soft)}
+.slider::-webkit-scrollbar{display:none}
+.slide{flex:0 0 100%;scroll-snap-align:center;height:100%;overflow:hidden}
+.slide>*{width:100%;height:100%}
+.slider-btn{position:absolute;top:calc(50% - 17px);width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;z-index:2}
+.slider-dots{position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:2;pointer-events:none}
+.slider-dots button{pointer-events:auto;width:10px;height:10px;padding:0;border:2px solid var(--ink);border-radius:99px;background:var(--card);transition:width .2s,background .2s}
+.slider-dots button.on{width:22px;background:var(--a2)}
+
+/* GALLERY THUMBS (admin form) */
+.thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
+.thumb{position:relative;aspect-ratio:1/1;border:2.5px solid var(--ink);border-radius:14px;overflow:hidden;background:var(--soft)}
+.thumb-x{position:absolute;top:4px;right:4px;width:24px;height:24px;padding:0;display:flex;align-items:center;justify-content:center;box-shadow:2px 2px 0 var(--ink)}
+
+/* VIDEO EMBED */
+.video{margin-top:14px;width:100%;border:3px solid var(--ink);border-radius:20px 12px 22px 12px;overflow:hidden;background:#000}
+.video iframe{width:100%;height:100%;border:0;display:block}
+.video.wide{aspect-ratio:16/9}
+.video.tall{max-width:325px;height:560px;margin-inline:auto}
+
+/* LIVE TICKER */
+@keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.ticker{overflow:hidden;white-space:nowrap;margin-top:1.25rem;background:var(--soft);border-top:2.5px solid var(--ink);border-bottom:2.5px solid var(--ink);font-weight:700;font-size:.875rem}
+.ticker-track{display:flex;width:max-content;animation:ticker 40s linear infinite}
+.ticker:hover .ticker-track{animation-play-state:paused}
+.ticker-half{display:flex}
+.ticker-item{padding:.6rem 1.25rem}
+.ticker-item::after{content:"•";margin-left:2.5rem;opacity:.45}
+
+@media (prefers-reduced-motion:reduce){
+  .reveal{opacity:1}.reveal.in{animation:none}
+  .pulse,.bnc,.ticker-track{animation:none}
+  .ticker{overflow-x:auto}
+  .bar>div{transition:none}
+  html{scroll-behavior:auto}
+}
 `;
 
 /* ───────────────────────── UI components ───────────────────────── */
@@ -164,13 +276,18 @@ const CatFrame = ({ src, alt, className = '' }: { src?: string | null; alt: stri
 const HungerBar = ({ cat }: { cat: Cat }) => {
   const p = pctOf(cat);
   const extra = Math.max(0, cat.currentRaised - cat.targetAmount);
+  const [w, setW] = useState(0); // starts empty, then fills up so the CSS transition plays when the modal opens
+  useEffect(() => {
+    const t = setTimeout(() => setW(p), 80);
+    return () => clearTimeout(t);
+  }, [p]);
   return (
     <div>
       <div className="flex justify-between font-bold text-sm mb-1.5">
         <span>Hunger Bar {p >= 100 ? '😻' : p >= 50 ? '😺' : '🥺'}</span><span>{p}%</span>
       </div>
       <div className="bar" role="progressbar" aria-valuenow={p} aria-valuemin={0} aria-valuemax={100}>
-        <div style={{ width: p + '%' }} />
+        <div style={{ width: w + '%' }} />
       </div>
       <div className="flex justify-between text-xs muted mt-1.5">
         <span>{rp(cat.currentRaised)}</span><span>target {rp(cat.targetAmount)}</span>
@@ -202,8 +319,9 @@ const Modal = ({ onClose, children, label }: { onClose: () => void; children: Re
   );
 };
 
-const UploadField = ({ file, onFile, label, folder, icon = 'Upload' }: {
+const UploadField = ({ file, onFile, label, folder, icon = 'Upload', multiple = false, limit }: {
   file?: string | null; onFile: (url: string, name: string) => void; label: string; folder: string; icon?: IconName;
+  multiple?: boolean; limit?: number; // limit = max files accepted per pick (0 disables the field)
 }) => {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -212,14 +330,15 @@ const UploadField = ({ file, onFile, label, folder, icon = 'Upload' }: {
       <label className="btn ghost flex items-center justify-center gap-2 px-4 py-2.5 text-sm" style={{ borderStyle: 'dashed' }}>
         <Ic n={icon} size={16} />
         <span className="truncate">{busy ? 'Mengunggah…' : file ? '✓ ' + file : label}</span>
-        <input type="file" accept="image/*" className="hidden" disabled={busy}
+        <input type="file" accept="image/*" multiple={multiple} className="hidden" disabled={busy || limit === 0}
           onChange={async e => {
-            const f = e.target.files?.[0];
-            if (!f) return;
+            const input = e.target;
+            const files = Array.from(input.files ?? []).slice(0, limit ?? undefined);
+            if (!files.length) return;
             setBusy(true); setErr('');
-            try { onFile(await uploadImage(f, folder), f.name); }
+            try { for (const f of files) onFile(await uploadImage(f, folder), f.name); }
             catch (ex) { setErr(ex instanceof Error ? ex.message : 'Upload gagal'); }
-            finally { setBusy(false); }
+            finally { setBusy(false); input.value = ''; }
           }} />
       </label>
       {err && <p className="text-xs mt-1 font-bold" style={{ color: 'var(--a2)' }}>{err}</p>}
@@ -401,10 +520,100 @@ const PayModal = ({ cat, onClose, onSubmit }: { cat: Cat; onClose: () => void; o
   );
 };
 
+/* Reveals an element the first time it scrolls into view */
+const useInView = <T extends HTMLElement>() => {
+  const ref = useRef<T>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || seen) return;
+    if (typeof IntersectionObserver === 'undefined') { setSeen(true); return; }
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setSeen(true); io.disconnect(); } }, { threshold: 0.15 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen]);
+  return [ref, seen] as const;
+};
+
+/* Turns a pasted YouTube / TikTok / Instagram link into an embeddable URL (known hosts only) */
+const toEmbed = (raw: string): { src: string; vertical: boolean } | null => {
+  let u: URL;
+  try { u = new URL(raw.trim()); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const safe = (x?: string | null) => (x && /^[\w-]+$/.test(x) ? x : null);
+  const host = u.hostname.replace(/^(www\.|m\.)/, '');
+  const parts = u.pathname.split('/').filter(Boolean);
+  if (host === 'youtu.be') {
+    const id = safe(parts[0]);
+    if (id) return { src: `https://www.youtube-nocookie.com/embed/${id}`, vertical: false };
+  }
+  if (host === 'youtube.com') {
+    const id = safe(u.searchParams.get('v') ?? (['shorts', 'embed', 'live'].includes(parts[0]) ? parts[1] : null));
+    if (id) return { src: `https://www.youtube-nocookie.com/embed/${id}`, vertical: parts[0] === 'shorts' };
+  }
+  if (host === 'tiktok.com') {
+    const i = parts.indexOf('video');
+    const id = i >= 0 ? safe(parts[i + 1]) : null;
+    if (id) return { src: `https://www.tiktok.com/embed/v2/${id}`, vertical: true };
+  }
+  if (host === 'instagram.com') {
+    const i = parts.findIndex(x => ['p', 'reel', 'tv'].includes(x));
+    const code = i >= 0 ? safe(parts[i + 1]) : null;
+    if (code) return { src: `https://www.instagram.com/${parts[i]}/${code}/embed`, vertical: true };
+  }
+  return null;
+};
+
+const VideoEmbed = ({ url, title }: { url: string; title: string }) => {
+  const embed = toEmbed(url);
+  if (embed) {
+    return (
+      <div className={'video ' + (embed.vertical ? 'tall' : 'wide')}>
+        <iframe src={embed.src} title={title} loading="lazy" allowFullScreen
+          allow="encrypted-media; picture-in-picture; fullscreen"
+          referrerPolicy="strict-origin-when-cross-origin" />
+      </div>
+    );
+  }
+  // Unknown or short link: offer a plain link instead of an embed
+  let href: string | null = null;
+  try { const u = new URL(url); if (u.protocol === 'https:' || u.protocol === 'http:') href = u.href; } catch { /* invalid URL */ }
+  return href
+    ? <a href={href} target="_blank" rel="noopener noreferrer" className="btn ghost flex items-center justify-center gap-2 px-4 py-2.5 text-sm mt-4">▶ Tonton video ↗</a>
+    : null;
+};
+
+const PhotoSlider = ({ photos, alt }: { photos: string[]; alt: string }) => {
+  const track = useRef<HTMLDivElement>(null);
+  const [idx, setIdx] = useState(0);
+  const go = (i: number) => {
+    const el = track.current;
+    if (!el) return;
+    const n = ((i % photos.length) + photos.length) % photos.length;
+    el.scrollTo({ left: n * el.clientWidth, behavior: 'smooth' });
+  };
+  return (
+    <div className="relative" style={{ marginTop: 14 }}>
+      <div ref={track} className="slider" tabIndex={0} role="group" aria-roledescription="carousel" aria-label={'Foto ' + alt}
+        onScroll={e => setIdx(Math.round(e.currentTarget.scrollLeft / (e.currentTarget.clientWidth || 1)))}>
+        {photos.map((src, i) => (
+          <div key={src + i} className="slide"><Photo src={src} alt={`${alt} ${i + 1} dari ${photos.length}`} /></div>
+        ))}
+      </div>
+      <button type="button" className="btn ghost slider-btn" style={{ left: 8 }} aria-label="Foto sebelumnya" onClick={() => go(idx - 1)}><Ic n="ChevronLeft" size={18} /></button>
+      <button type="button" className="btn ghost slider-btn" style={{ right: 8 }} aria-label="Foto berikutnya" onClick={() => go(idx + 1)}><Ic n="ChevronRight" size={18} /></button>
+      <div className="slider-dots">
+        {photos.map((_, i) => <button key={i} type="button" aria-label={`Ke foto ${i + 1}`} className={i === idx ? 'on' : ''} onClick={() => go(i)} />)}
+      </div>
+    </div>
+  );
+};
+
 const ProfileModal = ({ cat, proofs, onClose, onFeed, onToast }: {
   cat: Cat; proofs: Proof[]; onClose: () => void; onFeed: () => void; onToast: (msg: string) => void;
 }) => {
   const mine = proofs.filter(p => p.catId === cat.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const photos = [cat.photo, ...cat.gallery].filter(Boolean);
 
   const share = async () => {
     const url = `${window.location.origin}${window.location.pathname}?cat=${cat.id}`;
@@ -424,13 +633,16 @@ const ProfileModal = ({ cat, proofs, onClose, onFeed, onToast }: {
   return (
     <Modal onClose={onClose} label={'Profil ' + cat.name}>
       <div className="p-6 pt-8">
-        <div className="w-44 mx-auto"><CatFrame src={cat.photo} alt={cat.name} /></div>
+        {photos.length > 1
+          ? <PhotoSlider photos={photos} alt={cat.name} />
+          : <div className="w-44 mx-auto"><CatFrame src={cat.photo} alt={cat.name} /></div>}
+        {cat.videoUrl && <VideoEmbed url={cat.videoUrl} title={'Video ' + cat.name} />}
         <h3 className="text-2xl font-bold text-center mt-4">{cat.name}</h3>
         <p className="text-center muted text-sm">{cat.breed} · {cat.age}</p>
         <div className="flex gap-1.5 flex-wrap justify-center mt-2">{cat.traits.map(t => <span key={t} className="chip">{t}</span>)}</div>
         <div className="mt-5"><HungerBar cat={cat} /></div>
         <div className="flex gap-2 mt-4">
-          <button className="btn go flex-1 py-3.5 text-lg flex items-center justify-center gap-2" onClick={onFeed}><Ic n="Heart" size={20} /> Beri Makan</button>
+          <button className="btn go flex-1 py-3.5 text-lg flex items-center justify-center gap-2 pulse" onClick={onFeed}><Ic n="Heart" size={20} /> Beri Makan</button>
           <button className="btn ghost px-4 py-3.5 flex items-center justify-center gap-2" onClick={share} aria-label={'Bagikan profil ' + cat.name}><Ic n="Share2" size={18} /> Bagikan</button>
         </div>
         <h4 className="font-bold text-lg mt-7 mb-3 flex items-center gap-2"><Ic n="BookOpen" size={18} /> Buku Harian {cat.name}</h4>
@@ -461,8 +673,11 @@ const ProfileModal = ({ cat, proofs, onClose, onFeed, onToast }: {
 
 const CatCard = ({ cat, i, onOpen }: { cat: Cat; i: number; onOpen: () => void }) => {
   const p = pctOf(cat);
+  const [ref, seen] = useInView<HTMLButtonElement>();
   return (
-    <button onClick={onOpen} className="card p-4 pt-6 text-left transition hover:-translate-y-1 flex flex-col" style={{ transform: `rotate(${[-1, 1, -0.5][i % 3]}deg)` }}>
+    <button ref={ref} onClick={onOpen}
+      className={'card cat-card reveal p-4 pt-6 text-left flex flex-col' + (seen ? ' in' : '')}
+      style={{ '--rot': ['-1deg', '1deg', '-0.5deg'][i % 3], '--delay': (i % 3) * 90 + 'ms' } as CSSProperties}>
       <div className="w-3/4 mx-auto"><CatFrame src={cat.photo} alt={cat.name} /></div>
       <div className="flex justify-between items-center mt-4 mb-1">
         <h3 className="font-bold text-lg">{cat.name}</h3>
@@ -543,6 +758,31 @@ const PublicLedger = ({ entries }: { entries: LedgerEntry[] }) => {
   );
 };
 
+const LiveTicker = ({ entries }: { entries: LedgerEntry[] }) => {
+  const items = useMemo(() => entries
+    .filter(e => e.catName !== 'Kucing dihapus')
+    .slice(0, 12) // entries are already newest first
+    .map((e, i) => {
+      if (e.type === 'out') return `🍗 Relawan baru saja memberi makan ${e.catName}`;
+      const who = !e.label.trim() || /^anonim$/i.test(e.label.trim()) ? 'Seseorang' : e.label.trim();
+      return `${i % 2 ? '❤️' : '🐾'} ${who} berdonasi ${rp(e.amount)} untuk ${e.catName}`;
+    }), [entries]);
+  if (items.length === 0) return null;
+  // Repeat short lists so the ribbon always fills the screen; the track holds two identical halves for a seamless loop
+  const half = Array.from({ length: Math.ceil(8 / items.length) }, () => items).flat();
+  return (
+    <div className="ticker" role="region" aria-label="Aktivitas terbaru">
+      <div className="ticker-track" style={{ animationDuration: Math.max(24, half.length * 5) + 's' }}>
+        {[0, 1].map(copy => (
+          <div key={copy} className="ticker-half" aria-hidden={copy === 1}>
+            {half.map((t, i) => <span key={i} className="ticker-item">{t}</span>)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const PublicView = ({ cats, donations, proofs, ledger, about, onOpen }: { cats: Cat[]; donations: Donation[]; proofs: Proof[]; ledger: LedgerEntry[]; about: string; onOpen: (id: ID) => void }) => {
   const board = useMemo(() => {
     const m: Record<string, { name: string; total: number; n: number }> = {};
@@ -573,6 +813,8 @@ const PublicView = ({ cats, donations, proofs, ledger, about, onOpen }: { cats: 
           <a href="#transaksi" style={{ textDecoration: 'underline' }}>Lihat buku transaksi</a>
         </div>
       </div>
+
+      <LiveTicker entries={ledger} />
 
       <section className="max-w-5xl mx-auto px-5 pt-10 pb-6 grid md:grid-cols-2 gap-8 items-center">
         <div>
@@ -651,6 +893,7 @@ const FeedForm = ({ cat, onClose, onFeed }: {
         <div>
           <label className="text-sm font-bold">Biaya Makanan (Rp)</label>
           <input className="input mt-1" type="number" inputMode="numeric" min="1" max={cat.currentRaised} placeholder="Misal: 15000" value={cost} onChange={e => setCost(e.target.value)} />
+          <p className="text-xs muted mt-1">Tip: Jika membeli makanan secara grosir, cukup masukkan perkiraan harga per porsi makan kali ini.</p>
           {overspend && <p className="text-xs mt-1 font-bold" style={{ color: 'var(--a2)' }}>Biaya melebihi dana terkumpul ({rp(cat.currentRaised)}). Kurangi nominalnya.</p>}
           {costNum > 0 && !overspend && <p className="text-xs muted mt-1">Sisa dana setelah dipotong: {rp(cat.currentRaised - costNum)}</p>}
         </div>
@@ -667,12 +910,15 @@ const FeedForm = ({ cat, onClose, onFeed }: {
 const CatForm = ({ cat, onClose, onSave }: { cat: Cat | null; onClose: () => void; onSave: (c: CatPayload) => void }) => {
   const [f, setF] = useState(
     cat
-      ? { name: cat.name, breed: cat.breed, age: cat.age, traits: cat.traits.join(', '), targetAmount: String(cat.targetAmount), photo: cat.photo, lat: String(cat.lat||''), lng: String(cat.lng||'') }
-      : { name: '', breed: '', age: '', traits: '', targetAmount: '20000', photo: '', lat: '', lng: '' },
+      ? { name: cat.name, breed: cat.breed, age: cat.age, traits: cat.traits.join(', '), targetAmount: String(cat.targetAmount), photo: cat.photo, lat: String(cat.lat||''), lng: String(cat.lng||''), videoUrl: cat.videoUrl }
+      : { name: '', breed: '', age: '', traits: '', targetAmount: '20000', photo: '', lat: '', lng: '', videoUrl: '' },
   );
+  const [gallery, setGallery] = useState<string[]>(cat?.gallery ?? []);
   const [picked, setPicked] = useState('');
   const set = (k: keyof typeof f, v: string) => setF(s => ({ ...s, [k]: v }));
   const ok = f.name.trim() && Number(f.targetAmount) > 0;
+  const room = MAX_GALLERY - gallery.length;
+  const videoUrl = f.videoUrl.trim();
   return (
     <Modal onClose={onClose} label="Form kucing">
       <div className="p-6 space-y-3">
@@ -687,13 +933,38 @@ const CatForm = ({ cat, onClose, onSave }: { cat: Cat | null; onClose: () => voi
         <input className="input" type="number" min="1000" placeholder="Target (Rp)" value={f.targetAmount} onChange={e => set('targetAmount', e.target.value)} />
         <LocationPicker lat={f.lat} lng={f.lng} onChange={(lat, lng) => { set('lat', lat); set('lng', lng); }} />
         <UploadField file={picked} onFile={(url, nm) => { set('photo', url); setPicked(nm); }} label="Pilih foto profil kucing" icon="Camera" folder="cats" />
+
+        <div>
+          <div className="text-sm font-bold mb-1">Galeri foto tambahan ({gallery.length}/{MAX_GALLERY})</div>
+          {gallery.length > 0 && (
+            <div className="thumbs mb-2">
+              {gallery.map((src, i) => (
+                <div key={src} className="thumb">
+                  <Photo src={src} alt={`Foto galeri ${i + 1}`} />
+                  <button type="button" className="btn no thumb-x" aria-label={`Hapus foto galeri ${i + 1}`}
+                    onClick={() => setGallery(g => g.filter((_, j) => j !== i))}><Ic n="X" size={12} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          <UploadField multiple limit={room} onFile={url => setGallery(g => [...g, url])} folder="gallery" icon="Camera"
+            label={room > 0 ? 'Tambah foto galeri (bisa pilih banyak)' : 'Galeri penuh'} />
+        </div>
+
+        <div>
+          <input className="input" type="url" placeholder="Link video (YouTube / TikTok / Instagram)" value={f.videoUrl} onChange={e => set('videoUrl', e.target.value)} />
+          <p className="text-xs muted mt-1">Tempel link video biasa. Link pendek seperti vm.tiktok.com tidak bisa disematkan.</p>
+          {videoUrl && !toEmbed(videoUrl) && <p className="text-xs mt-1 font-bold" style={{ color: 'var(--a2)' }}>Link tidak dikenali, video akan tampil sebagai tombol Tonton video.</p>}
+        </div>
+
         <button disabled={!ok} className="btn go w-full py-3"
           onClick={() => {
             onSave({
               id: cat?.id, name: f.name.trim(), breed: f.breed.trim(), age: f.age.trim(),
               traits: f.traits.split(',').map(t => t.trim()).filter(Boolean),
               targetAmount: Number(f.targetAmount), photo: f.photo,
-              lat: f.lat ? Number(f.lat) : null, lng: f.lng ? Number(f.lng) : null
+              lat: f.lat ? Number(f.lat) : null, lng: f.lng ? Number(f.lng) : null,
+              gallery, videoUrl,
             });
             onClose();
           }}>Simpan Kucing</button>
@@ -773,7 +1044,16 @@ const Admin = ({ cats, donations, ledger, about, h }: { cats: Cat[]; donations: 
                   <div className="text-xs muted truncate">{c.lat ? '📍 Ada koordinat' : 'Belum ada koordinat'}</div>
                   <div className="text-xs">{rp(c.currentRaised)} / {rp(c.targetAmount)}</div>
                 </div>
-                <button className="btn ghost px-3 py-2" onClick={() => setForm({ cat: c })}><Ic n="Pencil" size={16} /></button>
+                <div className="flex gap-1 items-center">
+                  {/* Tombol Edit */}
+                  <button className="btn ghost px-2.5 py-2" title="Edit" onClick={() => setForm({ cat: c })}><Ic n="Pencil" size={15} /></button>
+                  {/* Tombol Sembunyikan / Tampilkan (Hide/Unhide) */}
+                  <button className="btn ghost px-2.5 py-2" title={c.isActive ? 'Sembunyikan' : 'Aktifkan'} onClick={() => h.setActive(c.id, !c.isActive)}>
+                    <Ic n={c.isActive ? 'EyeOff' : 'Check'} size={15} />
+                  </button>
+                  {/* Tombol Hapus */}
+                  <button className="btn no px-2.5 py-2" title="Hapus" onClick={() => h.removeCat(c.id)}><Ic n="X" size={15} /></button>
+                </div>
               </div>
             ))}
           </div>
@@ -914,6 +1194,17 @@ export default function Page() {
   useEffect(() => { refresh().finally(() => setLoading(false)); }, [refresh, auth]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t); } }, [toast]);
 
+  /* Prime the SFX on the first user gesture (needed by iOS Safari / autoplay policies) */
+  useEffect(() => {
+    const events = ['click', 'touchend', 'keydown'] as const;
+    const once = () => { unlockSfx(); events.forEach(e => window.removeEventListener(e, once)); };
+    events.forEach(e => window.addEventListener(e, once));
+    return () => events.forEach(e => window.removeEventListener(e, once));
+  }, []);
+
+  /* Opening a profile from a tap meows; the ?cat= deep link above uses setOpenId directly, so it stays silent */
+  const openProfile = useCallback((id: ID) => { playSfx('meow'); setOpenId(id); }, []);
+
   /* Theme: restore saved choice (or system preference) and set data-theme on <html> */
   const applyTheme = (t: Theme) => document.documentElement.setAttribute('data-theme', t);
   useEffect(() => {
@@ -944,8 +1235,10 @@ export default function Page() {
     approve: async d => {
       const cat = cats.find(c => c.id === d.catId);
       if (!cat) return;
-      await supabase.from('donations').update({ status: 'approved' }).eq('id', d.id);
+      const { error } = await supabase.from('donations').update({ status: 'approved' }).eq('id', d.id);
+      if (error) { console.error(error); setToast('Gagal menyetujui donasi ❌'); return; }
       await supabase.from('cats').update({ current_raised: cat.currentRaised + d.amount }).eq('id', cat.id);
+      playSfx('coin');
       setToast('Donasi disetujui ✅'); await refresh();
     },
     reject: async d => { await supabase.from('donations').update({ status: 'rejected' }).eq('id', d.id); await refresh(); },
@@ -956,12 +1249,18 @@ export default function Page() {
       const { error } = await supabase.from('proofs').insert({ cat_id: id, photo_url: photo, note, cost, fed_by: userEmail || null });
       if (error) { console.error(error); setToast('Gagal menyimpan bukti makan ❌'); return; }
       await supabase.from('cats').update({ current_raised: Math.max(0, cat.currentRaised - cost) }).eq('id', id);
+      playSfx('meow');
       setToast('Kucing sudah diberi makan 📖'); await refresh();
     },
     save: async c => {
-      const row = { name: c.name, breed: c.breed, age: c.age, traits: c.traits, photo_url: c.photo, target_amount: c.targetAmount, lat: c.lat, lng: c.lng };
-      if (c.id) await supabase.from('cats').update(row).eq('id', c.id);
-      else await supabase.from('cats').insert({ ...row, current_raised: 0, is_active: true });
+      const row = {
+        name: c.name, breed: c.breed, age: c.age, traits: c.traits, photo_url: c.photo, target_amount: c.targetAmount,
+        lat: c.lat, lng: c.lng, gallery: c.gallery, video_url: c.videoUrl || null,
+      };
+      const { error } = c.id
+        ? await supabase.from('cats').update(row).eq('id', c.id)
+        : await supabase.from('cats').insert({ ...row, current_raised: 0, is_active: true });
+      if (error) { console.error(error); setToast('Gagal menyimpan data kucing ❌'); return; }
       setToast('Data kucing disimpan 🐱'); await refresh();
     },
     setActive: async (id, active) => { await supabase.from('cats').update({ is_active: active }).eq('id', id); await refresh(); },
@@ -973,10 +1272,17 @@ export default function Page() {
       if (error) { console.error(error); setToast('Gagal menyimpan Tentang Kami ❌'); return; }
       setAbout(text); setToast('Tentang Kami diperbarui 💌');
     },
+    removeCat: async id => {
+      if (!confirm('Yakin ingin menghapus kucing ini secara permanen?')) return;
+      await supabase.from('cats').delete().eq('id', id);
+      setToast('Kucing berhasil dihapus 🗑️'); await refresh();
+    },
   };
 
   const submit = async (d: NewDonation) => {
-    await supabase.from('donations').insert({ cat_id: d.catId, display_name: d.name, amount: d.amount, receipt_url: d.receipt, status: 'pending' });
+    const { error } = await supabase.from('donations').insert({ cat_id: d.catId, display_name: d.name, amount: d.amount, receipt_url: d.receipt, status: 'pending' });
+    if (error) { console.error(error); setToast('Gagal mengirim bukti donasi ❌'); return false; }
+    playSfx('coin');
     setToast('Bukti dikirim! Menunggu admin mengecek 💌');
     if (auth) await refresh(); return true;
   };
@@ -998,7 +1304,7 @@ export default function Page() {
         {loading ? (
           <div className="text-center py-24 muted font-bold">Memuat data… 🐾</div>
         ) : view === 'public' ? (
-          <PublicView cats={cats.filter(c => c.isActive)} donations={donations} proofs={proofs} ledger={ledger} about={about} onOpen={setOpenId} />
+          <PublicView cats={cats.filter(c => c.isActive)} donations={donations} proofs={proofs} ledger={ledger} about={about} onOpen={openProfile} />
         ) : auth ? (
           <Admin cats={cats} donations={donations} ledger={ledger} about={about} h={h} />
         ) : (
