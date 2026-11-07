@@ -713,7 +713,7 @@ export default function Page() {
         </div>
       </header>
 
-      <main className="relative z-10">
+      <main className="relative z-20">
         {loading ? (
           <div className="text-center py-24 muted font-bold">Memuat kucing… 🐾</div>
         ) : view === 'public' ? (
