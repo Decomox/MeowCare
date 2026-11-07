@@ -238,7 +238,7 @@ const PublicMap = ({ cats, onOpen }: { cats: Cat[]; onOpen: (id: ID) => void }) 
     import('leaflet').then((leaflet) => {
       L = leaflet.default || leaflet;
       if (!mapInst.current) {
-        mapInst.current = L.map(mapContainer.current).setView([-6.200000, 106.816666], 11); // Area default
+        mapInst.current = L.map(mapContainer.current!).setView([-6.200000, 106.816666], 11); // Area default
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(mapInst.current);
       }
       
@@ -287,7 +287,7 @@ const LocationPicker = ({ lat, lng, onChange }: { lat: string; lng: string; onCh
       const initialLng = lng ? parseFloat(lng) : 106.816666;
 
       if (!mapInst.current) {
-        mapInst.current = L.map(mapContainer.current).setView([initialLat, initialLng], 12);
+        mapInst.current = L.map(mapContainer.current!).setView([initialLat, initialLng], 12);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInst.current);
 
         const icon = L.divIcon({
