@@ -578,7 +578,7 @@ const PublicView = ({ cats, donations, proofs, ledger, about, onOpen }: { cats: 
         <div>
           <span className="chip">🐾 100% receh, 100% nyata</span>
           <h1 className="text-4xl sm:text-5xl font-bold leading-tight mt-3">Perut kenyang,<br />hati <span style={{ color: 'var(--a2)' }}>meong</span> senang.</h1>
-          <p className="muted mt-4 max-w-md">Patungan receh buat kasih makan kucing jalanan. Tanpa login. Setiap bar penuh, relawan kami kasih makan dan upload fotonya ke Buku Harian.</p>
+          <p className="muted mt-4 max-w-md">Patungan receh buat kasih makan kucing jalanan. Tanpa login. Relawan kami kasih makan dan upload fotonya ke Buku Harian.</p>
           <div className="flex gap-3 mt-6 flex-wrap">
             <a href="#kucing" className="btn go px-6 py-3 bnc">Cari kucing lapar 🐱</a>
             <a href="#pahlawan" className="btn ghost px-6 py-3">Lihat Pahlawan 🏆</a>
