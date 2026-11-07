@@ -158,6 +158,60 @@ async function uploadImage(file: File, folder: string): Promise<string> {
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+/* ───────────────────────── PWA install (native beforeinstallprompt, no packages) ───────────────────────── */
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+const INSTALL_SNOOZE_KEY = 'meowcare-install-dismissed';
+const INSTALL_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000; // after a dismiss, stay quiet for a week
+
+/* Lives in the top-level page (not PublicView) because PublicView only mounts after the data has loaded,
+   and Chrome can fire `beforeinstallprompt` well before that. */
+function useInstallPrompt() {
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isIOS, setIsIOS] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [snoozed, setSnoozed] = useState(false);
+
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    const ipadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1; // iPadOS 13+ reports itself as a Mac
+    setIsIOS(/iPad|iPhone|iPod/.test(ua) || ipadOS);
+    setIsStandalone(window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true);
+    try { setSnoozed(Date.now() - Number(localStorage.getItem(INSTALL_SNOOZE_KEY) ?? 0) < INSTALL_SNOOZE_MS); } catch { /* storage unavailable */ }
+
+    const onPrompt = (e: Event) => { e.preventDefault(); setDeferredPrompt(e as BeforeInstallPromptEvent); };
+    const onInstalled = () => { setDeferredPrompt(null); setIsStandalone(true); };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
+  const dismiss = useCallback(() => {
+    setSnoozed(true);
+    try { localStorage.setItem(INSTALL_SNOOZE_KEY, String(Date.now())); } catch { /* storage unavailable */ }
+  }, []);
+
+  const install = useCallback(async () => {
+    if (!deferredPrompt) return;
+    try {
+      await deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'dismissed') dismiss();
+    } catch { /* prompt can only be used once */ }
+    setDeferredPrompt(null); // a used event cannot be reused
+  }, [deferredPrompt, dismiss]);
+
+  const mode: 'prompt' | 'ios' | null =
+    isStandalone || snoozed ? null : deferredPrompt ? 'prompt' : isIOS ? 'ios' : null;
+  return { mode, install, dismiss };
+}
+type PwaState = ReturnType<typeof useInstallPrompt>;
+
 /* ───────────────────────── Icons ───────────────────────── */
 const ICONS = { Heart, X, Check, Camera, Receipt, Trophy, BookOpen, Plus, Pencil, EyeOff, LogOut, Lock, Upload: UploadIcon, MapPin, Moon, Sun, Share2, ChevronLeft, ChevronRight };
 type IconName = keyof typeof ICONS;
@@ -783,7 +837,45 @@ const LiveTicker = ({ entries }: { entries: LedgerEntry[] }) => {
   );
 };
 
-const PublicView = ({ cats, donations, proofs, ledger, about, onOpen }: { cats: Cat[]; donations: Donation[]; proofs: Proof[]; ledger: LedgerEntry[]; about: string; onOpen: (id: ID) => void }) => {
+const InstallBanner = ({ mode, onInstall, onDismiss }: { mode: 'prompt' | 'ios'; onInstall: () => void; onDismiss: () => void }) => (
+  <div className="max-w-5xl mx-auto px-5 pt-5">
+    <div className="card pop relative p-4 sm:p-5" style={{ background: 'var(--soft)' }} role="region" aria-label="Instal aplikasi MeowCare">
+      <button onClick={onDismiss} aria-label="Tutup banner instal" className="absolute top-2.5 right-3 muted p-1 cursor-pointer"><Ic n="X" size={18} /></button>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="flex items-center gap-4 flex-1 min-w-0 pr-6 sm:pr-0">
+          <div className="text-4xl shrink-0 bnc" aria-hidden="true">🐱</div>
+          <div className="min-w-0">
+            <h3 className="font-bold text-lg leading-tight">Instal MeowCare</h3>
+            <p className="muted text-sm mt-0.5">Buka lebih cepat dari layar utama, tampil layar penuh layaknya aplikasi, tanpa ribet.</p>
+          </div>
+        </div>
+        {mode === 'prompt' && (
+          <button className="btn go px-6 py-3 w-full sm:w-auto shrink-0" onClick={onInstall}>📱 Instal Aplikasi MeowCare</button>
+        )}
+      </div>
+
+      {mode === 'ios' && (
+        <div className="mt-4 p-3.5 text-sm" style={{ background: 'var(--mint)', border: '2px solid var(--ink)', borderRadius: '18px 10px 20px 10px' }}>
+          <p className="font-bold mb-2">🍎 Pengguna iPhone:</p>
+          <ol className="space-y-2">
+            {[
+              <>Ketuk ikon <b>Bagikan (Share)</b> <span className="inline-flex align-middle p-1 card" style={{ boxShadow: 'none', borderWidth: 2 }}><Ic n="Share2" size={14} /></span> di bar browser Anda (iPhone: bawah, iPad: atas).</>,
+              <>Pilih <b>&quot;Tambah ke Layar Utama&quot;</b> (Add to Home Screen) <span className="inline-flex align-middle p-1 card" style={{ boxShadow: 'none', borderWidth: 2 }}><Ic n="Plus" size={14} /></span></>,
+              <>Ketuk <b>Tambah</b>, dan MeowCare muncul di layar utamamu 🎉</>,
+            ].map((t, i) => (
+              <li key={i} className="flex items-start gap-2.5">
+                <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: 'var(--card)', border: '2px solid var(--ink)' }}>{i + 1}</span>
+                <span className="pt-0.5">{t}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+const PublicView = ({ cats, donations, proofs, ledger, about, onOpen, pwa }: { cats: Cat[]; donations: Donation[]; proofs: Proof[]; ledger: LedgerEntry[]; about: string; onOpen: (id: ID) => void; pwa: PwaState }) => {
   const board = useMemo(() => {
     const m: Record<string, { name: string; total: number; n: number }> = {};
     donations.filter(d => d.status === 'approved').forEach(d => {
@@ -815,6 +907,8 @@ const PublicView = ({ cats, donations, proofs, ledger, about, onOpen }: { cats: 
       </div>
 
       <LiveTicker entries={ledger} />
+
+      {pwa.mode && <InstallBanner mode={pwa.mode} onInstall={pwa.install} onDismiss={pwa.dismiss} />}
 
       <section className="max-w-5xl mx-auto px-5 pt-10 pb-6 grid md:grid-cols-2 gap-8 items-center">
         <div>
@@ -1162,6 +1256,7 @@ export default function Page() {
   const [userEmail, setUserEmail] = useState('');
   const [theme, setTheme] = useState<Theme>('light');
   const deepLinked = useRef(false);
+  const pwa = useInstallPrompt();
 
   const refresh = useCallback(async () => {
     const [c, d, p, st] = await Promise.all([
@@ -1304,7 +1399,7 @@ export default function Page() {
         {loading ? (
           <div className="text-center py-24 muted font-bold">Memuat data… 🐾</div>
         ) : view === 'public' ? (
-          <PublicView cats={cats.filter(c => c.isActive)} donations={donations} proofs={proofs} ledger={ledger} about={about} onOpen={openProfile} />
+          <PublicView cats={cats.filter(c => c.isActive)} donations={donations} proofs={proofs} ledger={ledger} about={about} onOpen={openProfile} pwa={pwa} />
         ) : auth ? (
           <Admin cats={cats} donations={donations} ledger={ledger} about={about} h={h} />
         ) : (
