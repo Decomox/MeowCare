@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
   Heart, X, Check, Camera, Receipt, Trophy, BookOpen, Plus, Pencil, EyeOff, LogOut, Lock,
-  Upload as UploadIcon, MapPin
+  Upload as UploadIcon, MapPin, Moon, Sun, Share2
 } from 'lucide-react';
 
 /* ───────────────────────── Supabase ───────────────────────── */
@@ -15,11 +15,17 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
 const BUCKET = 'meowcare';
+const THEME_KEY = 'meowcare-theme';
+const ABOUT_KEY = 'about_us';
+const DEFAULT_ABOUT = `MeowCare lahir dari keresahan sederhana: banyak kucing jalanan yang kelaparan, sementara banyak orang ingin membantu tapi bingung caranya.
+
+Lewat patungan receh, setiap donasi langsung diubah menjadi makanan. Relawan kami memberi makan kucing-kucing ini dan mengunggah fotonya ke Buku Harian, jadi kamu bisa melihat sendiri ke mana donasimu pergi.`;
 
 /* ───────────────────────── Types ───────────────────────── */
 type ID = string | number;
 type Row = Record<string, any>;
 type DonationStatus = 'pending' | 'approved' | 'rejected';
+type Theme = 'light' | 'dark';
 
 interface Cat {
   id: ID; name: string; breed: string; age: string; traits: string[];
@@ -30,18 +36,20 @@ interface Donation {
   id: ID; catId: ID; name: string; amount: number; status: DonationStatus;
   receipt: string | null; createdAt: string;
 }
-interface Proof { id: ID; catId: ID; photo: string; note: string; createdAt: string }
+interface Proof { id: ID; catId: ID; photo: string; note: string; cost: number; createdAt: string }
 interface CatPayload {
   id?: ID; name: string; breed: string; age: string; traits: string[]; targetAmount: number; photo: string;
   lat: number | null; lng: number | null;
 }
 interface NewDonation { catId: ID; name: string; amount: number; receipt: string }
+interface LedgerEntry { id: string; date: string; type: 'in' | 'out'; catName: string; label: string; amount: number }
 interface Handlers {
   approve(d: Donation): Promise<void>;
   reject(d: Donation): Promise<void>;
-  fed(catId: ID, photo: string, note: string): Promise<void>;
+  fed(catId: ID, photo: string, note: string, cost: number): Promise<void>;
   save(c: CatPayload): Promise<void>;
   setActive(id: ID, active: boolean): Promise<void>;
+  saveAbout(text: string): Promise<void>;
 }
 
 /* DB row → UI model */
@@ -56,12 +64,24 @@ const toDonation = (r: Row): Donation => ({
   status: r.status, receipt: r.receipt_url ?? null, createdAt: r.created_at,
 });
 const toProof = (r: Row): Proof => ({
-  id: r.id, catId: r.cat_id, photo: r.photo_url ?? '', note: r.note ?? '', createdAt: r.created_at,
+  id: r.id, catId: r.cat_id, photo: r.photo_url ?? '', note: r.note ?? '', cost: Number(r.cost ?? 0), createdAt: r.created_at,
 });
 
 /* ───────────────────────── Helpers ───────────────────────── */
 const rp = (n: number) => 'Rp ' + Math.round(n).toLocaleString('id-ID');
 const pctOf = (c: Cat) => Math.min(100, Math.round((c.currentRaised / c.targetAmount) * 100));
+
+/* Money in (approved donations) + money out (feeding costs), newest first */
+const buildLedger = (cats: Cat[], donations: Donation[], proofs: Proof[]): LedgerEntry[] => {
+  const nameOf = (id: ID) => cats.find(c => String(c.id) === String(id))?.name ?? 'Kucing dihapus';
+  const income = donations.filter(d => d.status === 'approved').map<LedgerEntry>(d => ({
+    id: 'in-' + d.id, date: d.createdAt, type: 'in', catName: nameOf(d.catId), label: d.name, amount: d.amount,
+  }));
+  const expense = proofs.map<LedgerEntry>(p => ({
+    id: 'out-' + p.id, date: p.createdAt, type: 'out', catName: nameOf(p.catId), label: p.note, amount: p.cost,
+  }));
+  return [...income, ...expense].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+};
 
 async function uploadImage(file: File, folder: string): Promise<string> {
   if (file.size > 5 * 1024 * 1024) throw new Error('Ukuran foto maksimal 5 MB');
@@ -75,7 +95,7 @@ async function uploadImage(file: File, folder: string): Promise<string> {
 }
 
 /* ───────────────────────── Icons ───────────────────────── */
-const ICONS = { Heart, X, Check, Camera, Receipt, Trophy, BookOpen, Plus, Pencil, EyeOff, LogOut, Lock, Upload: UploadIcon, MapPin };
+const ICONS = { Heart, X, Check, Camera, Receipt, Trophy, BookOpen, Plus, Pencil, EyeOff, LogOut, Lock, Upload: UploadIcon, MapPin, Moon, Sun, Share2 };
 type IconName = keyof typeof ICONS;
 const Ic = ({ n, size = 18 }: { n: IconName; size?: number }) => {
   const C = ICONS[n];
@@ -117,7 +137,8 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 
 /* MAP THEMING */
 .map-theme .leaflet-tile-pane { filter: sepia(0.4) hue-rotate(-15deg) contrast(0.9) brightness(0.95); }
-@media (prefers-color-scheme:dark){ .map-theme .leaflet-tile-pane { filter: invert(0.9) hue-rotate(180deg) brightness(0.8) contrast(1.2) sepia(0.2); } }
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .map-theme .leaflet-tile-pane { filter: invert(0.9) hue-rotate(180deg) brightness(0.8) contrast(1.2) sepia(0.2); } }
+:root[data-theme="dark"] .map-theme .leaflet-tile-pane { filter: invert(0.9) hue-rotate(180deg) brightness(0.8) contrast(1.2) sepia(0.2); }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--card) !important; border: 2.5px solid var(--ink); color: var(--ink) !important; box-shadow: 4px 4px 0 var(--ink) !important; border-radius: 16px !important; }
 .leaflet-popup-tip { border-top: none; border-left: none; box-shadow: none !important; }
 
@@ -256,6 +277,7 @@ const LocationPicker = ({ lat, lng, onChange }: { lat: string; lng: string; onCh
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInst = useRef<any>(null);
   const markerInst = useRef<any>(null);
+  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !mapContainer.current) return;
@@ -276,24 +298,52 @@ const LocationPicker = ({ lat, lng, onChange }: { lat: string; lng: string; onCh
 
         markerInst.current = L.marker([initialLat, initialLng], { icon, draggable: true }).addTo(mapInst.current);
 
-        // Jika pin digeser
         markerInst.current.on('dragend', (e: any) => {
           const pos = e.target.getLatLng();
           onChange(pos.lat.toString(), pos.lng.toString());
         });
 
-        // Jika peta diklik
         mapInst.current.on('click', (e: any) => {
           markerInst.current.setLatLng(e.latlng);
           onChange(e.latlng.lat.toString(), e.latlng.lng.toString());
         });
       }
     });
-  }, []); // Mount sekali saja
+  }, []);
+
+  // Fungsi untuk mengambil GPS HP
+  const getMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Browser HP Anda tidak mendukung GPS');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        if (mapInst.current && markerInst.current) {
+          mapInst.current.setView([latitude, longitude], 16); // 16 = Zoom lebih dekat
+          markerInst.current.setLatLng([latitude, longitude]);
+        }
+        onChange(latitude.toString(), longitude.toString());
+        setLocating(false);
+      },
+      (err) => {
+        alert('Gagal mengambil lokasi. Pastikan izin akses Lokasi/GPS aktif di browser Anda.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true } // Minta akurasi tertinggi dari HP
+    );
+  };
 
   return (
-    <div>
-      <p className="text-xs muted mb-1 font-bold flex items-center gap-1"><Ic n="MapPin" size={14}/> Geser pin atau klik peta untuk atur lokasi</p>
+    <div className="space-y-2">
+      <div className="flex justify-between items-end">
+        <p className="text-xs muted font-bold flex items-center gap-1"><Ic n="MapPin" size={14}/> Geser pin atau klik peta</p>
+        <button type="button" onClick={getMyLocation} disabled={locating} className="btn ghost px-3 py-1.5 text-xs flex items-center gap-1">
+          {locating ? '⏳ Melacak...' : '📍 Ambil GPS Saya'}
+        </button>
+      </div>
       <div ref={mapContainer} className="w-full h-48 rounded-[16px] border-[3px] map-theme overflow-hidden" style={{ borderColor: 'var(--ink)', zIndex: 1 }} />
     </div>
   );
@@ -351,8 +401,26 @@ const PayModal = ({ cat, onClose, onSubmit }: { cat: Cat; onClose: () => void; o
   );
 };
 
-const ProfileModal = ({ cat, proofs, onClose, onFeed }: { cat: Cat; proofs: Proof[]; onClose: () => void; onFeed: () => void }) => {
+const ProfileModal = ({ cat, proofs, onClose, onFeed, onToast }: {
+  cat: Cat; proofs: Proof[]; onClose: () => void; onFeed: () => void; onToast: (msg: string) => void;
+}) => {
   const mine = proofs.filter(p => p.catId === cat.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const share = async () => {
+    const url = `${window.location.origin}${window.location.pathname}?cat=${cat.id}`;
+    const text = `Kenalan sama ${cat.name}, kucing jalanan di MeowCare! Yuk bantu kasih makan 🐱🍗`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${cat.name} di MeowCare`, text, url });
+      } else {
+        // Fallback for browsers without the Web Share API (e.g. desktop Firefox)
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        onToast('Tautan profil disalin 📋');
+      }
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === 'AbortError')) onToast('Gagal membagikan profil');
+    }
+  };
   return (
     <Modal onClose={onClose} label={'Profil ' + cat.name}>
       <div className="p-6 pt-8">
@@ -361,7 +429,10 @@ const ProfileModal = ({ cat, proofs, onClose, onFeed }: { cat: Cat; proofs: Proo
         <p className="text-center muted text-sm">{cat.breed} · {cat.age}</p>
         <div className="flex gap-1.5 flex-wrap justify-center mt-2">{cat.traits.map(t => <span key={t} className="chip">{t}</span>)}</div>
         <div className="mt-5"><HungerBar cat={cat} /></div>
-        <button className="btn go w-full py-3.5 mt-4 text-lg flex items-center justify-center gap-2" onClick={onFeed}><Ic n="Heart" size={20} /> Beri Makan</button>
+        <div className="flex gap-2 mt-4">
+          <button className="btn go flex-1 py-3.5 text-lg flex items-center justify-center gap-2" onClick={onFeed}><Ic n="Heart" size={20} /> Beri Makan</button>
+          <button className="btn ghost px-4 py-3.5 flex items-center justify-center gap-2" onClick={share} aria-label={'Bagikan profil ' + cat.name}><Ic n="Share2" size={18} /> Bagikan</button>
+        </div>
         <h4 className="font-bold text-lg mt-7 mb-3 flex items-center gap-2"><Ic n="BookOpen" size={18} /> Buku Harian {cat.name}</h4>
         {mine.length === 0 ? (
           <p className="muted text-sm">Belum ada foto makan. Jadilah yang pertama! 🐾</p>
@@ -404,7 +475,75 @@ const CatCard = ({ cat, i, onOpen }: { cat: Cat; i: number; onOpen: () => void }
   );
 };
 
-const PublicView = ({ cats, donations, proofs, onOpen }: { cats: Cat[]; donations: Donation[]; proofs: Proof[]; onOpen: (id: ID) => void }) => {
+const LedgerTable = ({ entries, variant }: { entries: LedgerEntry[]; variant: 'admin' | 'public' }) => {
+  const isAdmin = variant === 'admin';
+  const heads = isAdmin ? ['Tanggal', 'Tipe', 'Kucing', 'Catatan / Donatur', 'Nominal'] : ['Tanggal', 'Keterangan', 'Nominal'];
+  const amountText = (e: LedgerEntry) => e.type === 'in' ? '+' + rp(e.amount) : e.amount > 0 ? '−' + rp(e.amount) : 'tidak tercatat';
+  return (
+    <div className="card overflow-x-auto">
+      <table className={'w-full text-sm ' + (isAdmin ? 'min-w-[620px]' : 'min-w-[420px]')}>
+        <thead><tr className="text-left muted text-xs uppercase">{heads.map(x => <th key={x} className="px-4 py-3">{x}</th>)}</tr></thead>
+        <tbody>
+          {entries.length === 0 && <tr><td colSpan={heads.length} className="p-8 text-center muted">Belum ada transaksi.</td></tr>}
+          {entries.map(e => (
+            <tr key={e.id} className="border-t-2" style={{ borderColor: 'var(--soft)' }}>
+              <td className="px-4 py-3 whitespace-nowrap">{e.date.slice(0, 10)}</td>
+              {isAdmin ? (
+                <>
+                  <td className="px-4 py-3 whitespace-nowrap">{e.type === 'in' ? '🟢 Pemasukan' : '🔴 Pengeluaran'}</td>
+                  <td className="px-4 py-3 font-bold">{e.catName}</td>
+                  <td className="px-4 py-3">{e.label}</td>
+                </>
+              ) : (
+                <td className="px-4 py-3">{e.type === 'in' ? '🟢' : '🔴'} <b>{e.catName}</b> · {e.label}</td>
+              )}
+              <td className="px-4 py-3 font-bold whitespace-nowrap" style={{ color: e.type === 'in' ? '#2f9e5f' : 'var(--a2)' }}>{amountText(e)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+const PublicLedger = ({ entries }: { entries: LedgerEntry[] }) => {
+  const [showAll, setShowAll] = useState(false);
+  const totalIn = entries.filter(e => e.type === 'in').reduce((a, e) => a + e.amount, 0);
+  const totalOut = entries.filter(e => e.type === 'out').reduce((a, e) => a + e.amount, 0);
+  
+  return (
+    <section id="transaksi" className="max-w-5xl mx-auto px-5 py-8">
+      <h2 className="text-2xl font-bold flex items-center gap-2 mb-2"><Ic n="Receipt" size={24} /> Buku Transaksi Terbuka</h2>
+      <p className="muted text-sm mb-4">Semua uang masuk dan uang keluar, tercatat transparan.</p>
+      
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="card p-3.5" style={{ background: 'var(--mint)' }}><div className="text-xs">Total masuk 🟢</div><div className="font-bold text-lg">{rp(totalIn)}</div></div>
+        <div className="card p-3.5" style={{ background: 'var(--pink)' }}><div className="text-xs">Total keluar 🔴</div><div className="font-bold text-lg">{rp(totalOut)}</div></div>
+      </div>
+      
+      {/* Hanya tampilkan 5 transaksi di halaman utama sebagai cuplikan */}
+      <LedgerTable entries={entries.slice(0, 5)} variant="public" />
+      
+      {entries.length > 5 && (
+        <button className="btn ghost w-full py-3 mt-4 text-sm font-bold" onClick={() => setShowAll(true)}>
+          Lihat Semua Transaksi ({entries.length})
+        </button>
+      )}
+
+      {/* Pop-up Modal untuk melihat semua transaksi yang bisa di-scroll dengan rapi */}
+      {showAll && (
+        <Modal onClose={() => setShowAll(false)} label="Semua Transaksi">
+          <div className="p-6">
+            <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><Ic n="Receipt" size={20} /> Seluruh Riwayat Kas</h3>
+            <LedgerTable entries={entries} variant="public" />
+          </div>
+        </Modal>
+      )}
+    </section>
+  );
+};
+
+const PublicView = ({ cats, donations, proofs, ledger, about, onOpen }: { cats: Cat[]; donations: Donation[]; proofs: Proof[]; ledger: LedgerEntry[]; about: string; onOpen: (id: ID) => void }) => {
   const board = useMemo(() => {
     const m: Record<string, { name: string; total: number; n: number }> = {};
     donations.filter(d => d.status === 'approved').forEach(d => {
@@ -415,10 +554,26 @@ const PublicView = ({ cats, donations, proofs, onOpen }: { cats: Cat[]; donation
     });
     return Object.values(m).sort((a, b) => b.total - a.total).slice(0, 5);
   }, [donations]);
-  const total = donations.filter(d => d.status === 'approved').reduce((a, d) => a + d.amount, 0);
+  const stats = useMemo(() => {
+    const approved = donations.filter(d => d.status === 'approved');
+    const named = new Set<string>();
+    let anonymous = 0; // every anonymous donation counts as its own donor
+    approved.forEach(d => {
+      const k = d.name.trim().toLowerCase();
+      if (!k || k === 'anonim') anonymous++; else named.add(k);
+    });
+    return { total: approved.reduce((a, d) => a + d.amount, 0), donors: named.size + anonymous, feeds: proofs.length };
+  }, [donations, proofs]);
 
   return (
     <>
+      <div className="max-w-5xl mx-auto px-5 pt-6">
+        <div className="card px-4 py-2.5 text-sm text-center" style={{ background: 'var(--mint)' }}>
+          🐾 Telah menyalurkan <b>{rp(stats.total)}</b> dari <b>{stats.donors}</b> donatur, dan memberi makan kucing sebanyak <b>{stats.feeds}</b> kali.{' '}
+          <a href="#transaksi" style={{ textDecoration: 'underline' }}>Lihat buku transaksi</a>
+        </div>
+      </div>
+
       <section className="max-w-5xl mx-auto px-5 pt-10 pb-6 grid md:grid-cols-2 gap-8 items-center">
         <div>
           <span className="chip">🐾 100% receh, 100% nyata</span>
@@ -427,11 +582,12 @@ const PublicView = ({ cats, donations, proofs, onOpen }: { cats: Cat[]; donation
           <div className="flex gap-3 mt-6 flex-wrap">
             <a href="#kucing" className="btn go px-6 py-3 bnc">Cari kucing lapar 🐱</a>
             <a href="#pahlawan" className="btn ghost px-6 py-3">Lihat Pahlawan 🏆</a>
+            {about.trim() && <a href="#tentang" className="btn ghost px-6 py-3">Tentang Kami 💌</a>}
           </div>
         </div>
         <div className="relative max-w-xs mx-auto w-full">
           <CatFrame src={cats[0]?.photo} alt="Kucing MeowCare" />
-          <span className="card absolute z-20 -bottom-4 -left-2 px-3 py-1.5 text-sm font-bold" style={{ transform: 'rotate(-6deg)', background: 'var(--pink)' }}>Rp 1.000 = 1 suap 🍗</span>
+          <span className="card absolute z-20 -bottom-4 -left-2 px-3 py-1.5 text-sm font-bold" style={{ transform: 'rotate(-6deg)', background: 'var(--pink)' }}>Halo Human yang Baik Hati</span>
         </div>
       </section>
 
@@ -460,11 +616,54 @@ const PublicView = ({ cats, donations, proofs, onOpen }: { cats: Cat[]; donation
           {cats.map((c, i) => <CatCard key={c.id} cat={c} i={i} onOpen={() => onOpen(c.id)} />)}
         </div>
       </section>
+
+      <PublicLedger entries={ledger} />
+
+      {about.trim() && (
+        <section id="tentang" className="max-w-5xl mx-auto px-5 py-8">
+          <h2 className="text-2xl font-bold flex items-center gap-2 mb-4">💌 Tentang Kami</h2>
+          <div className="card p-5 sm:p-6" style={{ background: 'var(--soft)' }}>
+            <p style={{ whiteSpace: 'pre-line', lineHeight: 1.7 }}>{about}</p>
+          </div>
+        </section>
+      )}
     </>
   );
 };
 
 /* ───────────────────────── Admin ───────────────────────── */
+const FeedForm = ({ cat, onClose, onFeed }: {
+  cat: Cat; onClose: () => void; onFeed: (catId: ID, photo: string, note: string, cost: number) => void;
+}) => {
+  const [photo, setPhoto] = useState('');
+  const [picked, setPicked] = useState('');
+  const [note, setNote] = useState('');
+  const [cost, setCost] = useState('');
+  const costNum = Number(cost);
+  const overspend = costNum > cat.currentRaised;
+  const ok = !!photo && !!note.trim() && costNum > 0 && !overspend;
+  return (
+    <Modal onClose={onClose} label={"Beri makan " + cat.name}>
+      <div className="p-6 space-y-3">
+        <h3 className="text-xl font-bold pr-10">Upload Bukti Makan 🍗</h3>
+        <p className="text-sm muted mb-4">Uang terkumpul: {rp(cat.currentRaised)}. Upload foto saat relawan memberi makan {cat.name}.</p>
+        <UploadField file={picked} onFile={(url, nm) => { setPhoto(url); setPicked(nm); }} label="Pilih foto bukti makan" icon="Camera" folder="proofs" />
+        <div>
+          <label className="text-sm font-bold">Biaya Makanan (Rp)</label>
+          <input className="input mt-1" type="number" inputMode="numeric" min="1" max={cat.currentRaised} placeholder="Misal: 15000" value={cost} onChange={e => setCost(e.target.value)} />
+          {overspend && <p className="text-xs mt-1 font-bold" style={{ color: 'var(--a2)' }}>Biaya melebihi dana terkumpul ({rp(cat.currentRaised)}). Kurangi nominalnya.</p>}
+          {costNum > 0 && !overspend && <p className="text-xs muted mt-1">Sisa dana setelah dipotong: {rp(cat.currentRaised - costNum)}</p>}
+        </div>
+        <textarea className="input min-h-[100px] mt-2" placeholder="Catatan (Misal: Bobby makannya lahap banget hari ini!)" value={note} onChange={e => setNote(e.target.value)} />
+        <button disabled={!ok} className="btn go w-full py-3 mt-2"
+          onClick={() => { onFeed(cat.id, photo, note.trim(), costNum); onClose(); }}>
+          Simpan ke Buku Harian
+        </button>
+      </div>
+    </Modal>
+  );
+};
+
 const CatForm = ({ cat, onClose, onSave }: { cat: Cat | null; onClose: () => void; onSave: (c: CatPayload) => void }) => {
   const [f, setF] = useState(
     cat
@@ -503,15 +702,38 @@ const CatForm = ({ cat, onClose, onSave }: { cat: Cat | null; onClose: () => voi
   );
 };
 
-const Admin = ({ cats, donations, h }: { cats: Cat[]; donations: Donation[]; h: Handlers }) => {
-  const [tab, setTab] = useState<'verify' | 'cats'>('verify');
+const SettingsPanel = ({ about, onSave }: { about: string; onSave: (text: string) => Promise<void> }) => {
+  const [text, setText] = useState(about);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setText(about), [about]);
+  const dirty = text.trim() !== about.trim();
+  return (
+    <div className="card p-5 space-y-3 max-w-2xl">
+      <h3 className="text-xl font-bold">Tentang Kami 💌</h3>
+      <p className="text-sm muted">Teks ini tampil di halaman publik pada bagian &quot;Tentang Kami&quot;. Baris baru dipertahankan. Kosongkan untuk menyembunyikan bagian tersebut.</p>
+      <textarea className="input min-h-[180px]" maxLength={2000} placeholder="Ceritakan kisah atau misi MeowCare…" value={text} onChange={e => setText(e.target.value)} />
+      <div className="text-xs muted text-right">{text.length}/2000</div>
+      <button className="btn go w-full py-3" disabled={busy || !dirty}
+        onClick={async () => { setBusy(true); await onSave(text.trim()); setBusy(false); }}>
+        {busy ? 'Menyimpan…' : 'Simpan Perubahan'}
+      </button>
+    </div>
+  );
+};
+
+const Admin = ({ cats, donations, ledger, about, h }: { cats: Cat[]; donations: Donation[]; ledger: LedgerEntry[]; about: string; h: Handlers }) => {
+  const [tab, setTab] = useState<'verify' | 'cats' | 'feed' | 'ledger' | 'settings'>('verify');
   const [form, setForm] = useState<{ cat: Cat | null } | null>(null);
+  const [feedForm, setFeedForm] = useState<{ cat: Cat } | null>(null);
   const pending = donations.filter(d => d.status === 'pending');
   return (
     <div className="max-w-5xl mx-auto px-5 py-8">
       <div className="flex gap-2 flex-wrap mb-6">
         <button onClick={() => setTab('verify')} className={'btn px-4 py-2 text-sm ' + (tab === 'verify' ? 'go' : 'ghost')}>Verifikasi ({pending.length})</button>
         <button onClick={() => setTab('cats')} className={'btn px-4 py-2 text-sm ' + (tab === 'cats' ? 'go' : 'ghost')}>Kucing ({cats.length})</button>
+        <button onClick={() => setTab('feed')} className={'btn px-4 py-2 text-sm ' + (tab === 'feed' ? 'go' : 'ghost')}>Bukti Makan</button>
+        <button onClick={() => setTab('ledger')} className={'btn px-4 py-2 text-sm ' + (tab === 'ledger' ? 'go' : 'ghost')}>Buku Kas</button>
+        <button onClick={() => setTab('settings')} className={'btn px-4 py-2 text-sm ' + (tab === 'settings' ? 'go' : 'ghost')}>Pengaturan</button>
       </div>
 
       {tab === 'verify' && (
@@ -557,12 +779,95 @@ const Admin = ({ cats, donations, h }: { cats: Cat[]; donations: Donation[]; h: 
           </div>
         </div>
       )}
+
+      {tab === 'feed' && (
+        <div>
+          <p className="muted text-sm mb-4">Kucing dengan dana terkumpul. Klik icon kamera untuk upload bukti makan.</p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            {cats.filter(c => c.currentRaised > 0).map(c => (
+              <div key={c.id} className="card p-3 flex gap-3 items-center">
+                <div className="w-16 shrink-0"><CatFrame src={c.photo} alt={c.name} /></div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold">{c.name}</div>
+                  <div className="text-sm font-bold text-[var(--a2)]">Terkumpul: {rp(c.currentRaised)}</div>
+                </div>
+                <button className="btn ok px-3 py-2 flex items-center gap-1" onClick={() => setFeedForm({ cat: c })}>
+                  <Ic n="Camera" size={16} /> Upload
+                </button>
+              </div>
+            ))}
+            {cats.filter(c => c.currentRaised > 0).length === 0 && (
+              <div className="col-span-full p-8 text-center muted border-2 border-dashed border-[var(--ink)] rounded-2xl">
+                Belum ada kucing yang memiliki dana donasi.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {tab === 'ledger' && (
+        <div>
+          <p className="muted text-sm mb-4">Riwayat uang masuk (donasi disetujui) dan uang keluar (biaya makan), terbaru di atas.</p>
+          <LedgerTable entries={ledger} variant="admin" />
+        </div>
+      )}
+
+      {tab === 'settings' && <SettingsPanel about={about} onSave={h.saveAbout} />}
+
       {form && <CatForm cat={form.cat} onClose={() => setForm(null)} onSave={h.save} />}
+      {feedForm && <FeedForm cat={feedForm.cat} onClose={() => setFeedForm(null)} onFeed={h.fed} />}
     </div>
   );
 };
 
 /* ───────────────────────── Main App ───────────────────────── */
+const Login = () => {
+  const [email, setEmail] = useState('');
+  const [pw, setPw] = useState('');
+  const [err, setErr] = useState('');
+  const [shake, setShake] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pw });
+    setBusy(false);
+    if (error) { setErr(error.message); setPw(''); setShake(s => s + 1); }
+  };
+  return (
+    <div className="max-w-sm mx-auto px-5 py-16">
+      <div key={shake} className={'card p-6 text-center ' + (shake ? 'shake' : '')}>
+        <div className="text-5xl bnc">🔐</div>
+        <h2 className="text-xl font-bold mt-2">Area Admin</h2>
+        <p className="text-sm muted mb-4">Khusus relawan & pengelola MeowCare.</p>
+        <input className="input mb-2" type="email" placeholder="Email admin" value={email} onChange={e => setEmail(e.target.value)} />
+        <input className="input" type="password" placeholder="Password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === 'Enter' && go()} />
+        {err && <p className="text-sm mt-2 font-bold" style={{ color: 'var(--a2)' }}>{err}</p>}
+        <button className="btn go w-full py-3 mt-4" disabled={busy || !email || !pw} onClick={go}>{busy ? 'Masuk…' : 'Masuk'}</button>
+      </div>
+    </div>
+  );
+};
+
+const Header = ({ view, auth, theme, onToggleTheme, onView, onLogout }: {
+  view: 'public' | 'admin'; auth: boolean; theme: Theme;
+  onToggleTheme: () => void; onView: (v: 'public' | 'admin') => void; onLogout: () => void;
+}) => {
+  const label = theme === 'dark' ? 'Aktifkan mode terang' : 'Aktifkan mode gelap';
+  return (
+    <header className="sticky z-40 border-b-[3px]" style={{ top: 'env(safe-area-inset-top,0px)', background: 'var(--card)', borderColor: 'var(--ink)' }}>
+      <div className="max-w-5xl mx-auto px-5 py-2.5 flex items-center justify-between">
+        <button onClick={() => onView('public')} className="font-bold text-2xl flex items-center gap-1.5">🐾 Meow<span style={{ color: 'var(--a2)' }}>Care</span></button>
+        <div className="flex gap-2 items-center">
+          <button className="btn ghost w-9 h-9 flex items-center justify-center" onClick={onToggleTheme} aria-label={label} title={label}>
+            <Ic n={theme === 'dark' ? 'Sun' : 'Moon'} size={16} />
+          </button>
+          {view === 'admin' && auth && <button className="btn ghost px-3 py-1 text-sm flex items-center gap-1" onClick={onLogout}><Ic n="LogOut" size={14} />Keluar</button>}
+          <button className="btn ghost px-3 py-1.5 text-sm flex items-center gap-1" onClick={() => onView(view === 'public' ? 'admin' : 'public')}>{view === 'public' ? <><Ic n="Lock" size={14} />Admin</> : '← Publik'}</button>
+        </div>
+      </div>
+    </header>
+  );
+};
+
 export default function Page() {
   const [view, setView] = useState<'public' | 'admin'>('public');
   const [auth, setAuth] = useState(false);
@@ -573,28 +878,67 @@ export default function Page() {
   const [openId, setOpenId] = useState<ID | null>(null);
   const [payId, setPayId] = useState<ID | null>(null);
   const [toast, setToast] = useState('');
+  const [about, setAbout] = useState(DEFAULT_ABOUT);
+  const [userEmail, setUserEmail] = useState('');
+  const [theme, setTheme] = useState<Theme>('light');
+  const deepLinked = useRef(false);
 
   const refresh = useCallback(async () => {
-    const [c, d, p] = await Promise.all([
+    const [c, d, p, st] = await Promise.all([
       supabase.from('cats').select('*').order('id', { ascending: true }),
       supabase.from('donations').select('*').order('created_at', { ascending: false }),
-      supabase.from('proofs').select('*').order('created_at', { ascending: false }),
+      supabase.from('proofs').select('id, cat_id, photo_url, note, cost, created_at').order('created_at', { ascending: false }),
+      supabase.from('site_settings').select('value').eq('key', ABOUT_KEY).maybeSingle(),
     ]);
     if (!c.error && !d.error && !p.error) {
       setCats((c.data ?? []).map(toCat));
       setDonations((d.data ?? []).map(toDonation));
       setProofs((p.data ?? []).map(toProof));
     }
+    // Settings are optional: if the table is missing or empty, keep the default text
+    if (!st.error && st.data) setAbout(String(st.data.value ?? ''));
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setAuth(!!data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => setAuth(!!session));
+    supabase.auth.getSession().then(({ data }) => {
+      setAuth(!!data.session);
+      setUserEmail(data.session?.user.email ?? '');
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setAuth(!!session);
+      setUserEmail(session?.user.email ?? '');
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
   useEffect(() => { refresh().finally(() => setLoading(false)); }, [refresh, auth]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t); } }, [toast]);
+
+  /* Theme: restore saved choice (or system preference) and set data-theme on <html> */
+  const applyTheme = (t: Theme) => document.documentElement.setAttribute('data-theme', t);
+  useEffect(() => {
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(THEME_KEY); } catch { /* storage unavailable */ }
+    const initial: Theme = saved === 'dark' || saved === 'light'
+      ? saved
+      : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    setTheme(initial);
+    applyTheme(initial);
+  }, []);
+  const toggleTheme = () => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    applyTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* storage unavailable */ }
+  };
+
+  /* Shared links (?cat=ID) open that cat's profile once data has loaded */
+  useEffect(() => {
+    if (loading || deepLinked.current) return;
+    deepLinked.current = true;
+    const id = new URLSearchParams(window.location.search).get('cat');
+    if (id && cats.some(c => String(c.id) === id && c.isActive)) setOpenId(id);
+  }, [loading, cats]);
 
   const h: Handlers = {
     approve: async d => {
@@ -605,11 +949,13 @@ export default function Page() {
       setToast('Donasi disetujui ✅'); await refresh();
     },
     reject: async d => { await supabase.from('donations').update({ status: 'rejected' }).eq('id', d.id); await refresh(); },
-    fed: async (id, photo, note) => {
+    fed: async (id, photo, note, cost) => {
       const cat = cats.find(c => c.id === id);
       if (!cat) return;
-      await supabase.from('proofs').insert({ cat_id: id, photo_url: photo, note });
-      await supabase.from('cats').update({ current_raised: Math.max(0, cat.currentRaised - cat.targetAmount) }).eq('id', id);
+      if (cost > cat.currentRaised) { setToast('Biaya melebihi dana terkumpul ❌'); return; }
+      const { error } = await supabase.from('proofs').insert({ cat_id: id, photo_url: photo, note, cost, fed_by: userEmail || null });
+      if (error) { console.error(error); setToast('Gagal menyimpan bukti makan ❌'); return; }
+      await supabase.from('cats').update({ current_raised: Math.max(0, cat.currentRaised - cost) }).eq('id', id);
       setToast('Kucing sudah diberi makan 📖'); await refresh();
     },
     save: async c => {
@@ -619,6 +965,14 @@ export default function Page() {
       setToast('Data kucing disimpan 🐱'); await refresh();
     },
     setActive: async (id, active) => { await supabase.from('cats').update({ is_active: active }).eq('id', id); await refresh(); },
+    saveAbout: async text => {
+      const { error } = await supabase.from('site_settings').upsert(
+        { key: ABOUT_KEY, value: text, updated_at: new Date().toISOString() },
+        { onConflict: 'key' },
+      );
+      if (error) { console.error(error); setToast('Gagal menyimpan Tentang Kami ❌'); return; }
+      setAbout(text); setToast('Tentang Kami diperbarui 💌');
+    },
   };
 
   const submit = async (d: NewDonation) => {
@@ -627,39 +981,35 @@ export default function Page() {
     if (auth) await refresh(); return true;
   };
 
+  const ledger = useMemo(() => buildLedger(cats, donations, proofs), [cats, donations, proofs]);
+  const openCat = cats.find(c => String(c.id) === String(openId));
+  const payCat = cats.find(c => String(c.id) === String(payId));
+
   return (
     <div className="min-h-screen relative">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <header className="sticky z-40 border-b-[3px]" style={{ top: 'env(safe-area-inset-top,0px)', background: 'var(--card)', borderColor: 'var(--ink)' }}>
-        <div className="max-w-5xl mx-auto px-5 py-2.5 flex items-center justify-between">
-          <button onClick={() => setView('public')} className="font-bold text-2xl flex items-center gap-1.5">🐾 Meow<span style={{ color: 'var(--a2)' }}>Care</span></button>
-          <div className="flex gap-2">
-            {view === 'admin' && auth && <button className="btn ghost px-3 py-1 text-sm flex items-center gap-1" onClick={() => { supabase.auth.signOut(); setView('public'); }}><Ic n="LogOut" size={14} />Keluar</button>}
-            <button className="btn ghost px-3 py-1.5 text-sm flex items-center gap-1" onClick={() => setView(view === 'public' ? 'admin' : 'public')}>{view === 'public' ? <><Ic n="Lock" size={14} />Admin</> : '← Publik'}</button>
-          </div>
-        </div>
-      </header>
+      <Header
+        view={view} auth={auth} theme={theme} onToggleTheme={toggleTheme} onView={setView}
+        onLogout={() => { supabase.auth.signOut(); setView('public'); }}
+      />
 
       {/* PERBAIKAN Z-INDEX (z-20) AGAR TIDAK TUMPANG TINDIH DENGAN FOOTER */}
       <main className="relative z-20">
         {loading ? (
           <div className="text-center py-24 muted font-bold">Memuat data… 🐾</div>
         ) : view === 'public' ? (
-          <PublicView cats={cats.filter(c => c.isActive)} donations={donations} proofs={proofs} onOpen={setOpenId} />
+          <PublicView cats={cats.filter(c => c.isActive)} donations={donations} proofs={proofs} ledger={ledger} about={about} onOpen={setOpenId} />
         ) : auth ? (
-          <Admin cats={cats} donations={donations} h={h} />
+          <Admin cats={cats} donations={donations} ledger={ledger} about={about} h={h} />
         ) : (
-          <div className="max-w-sm mx-auto px-5 py-20 text-center"><button className="btn go w-full py-3" onClick={async () => {
-             const email = prompt('Email:'); const pw = prompt('Password:');
-             if(email && pw) await supabase.auth.signInWithPassword({ email, password: pw });
-          }}>Login Admin Khusus Relawan</button></div>
+          <Login />
         )}
       </main>
 
       <footer className="relative z-10 text-center text-xs muted py-8">Dibuat dengan 🧡 untuk kucing jalanan</footer>
 
-      {openId && <ProfileModal cat={cats.find(c=>c.id===openId)!} proofs={proofs} onClose={() => setOpenId(null)} onFeed={() => setPayId(openId)} />}
-      {payId && <PayModal cat={cats.find(c=>c.id===payId)!} onClose={() => setPayId(null)} onSubmit={submit} />}
+      {openCat && <ProfileModal cat={openCat} proofs={proofs} onClose={() => setOpenId(null)} onFeed={() => setPayId(openCat.id)} onToast={setToast} />}
+      {payCat && <PayModal cat={payCat} onClose={() => setPayId(null)} onSubmit={submit} />}
       {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] pop btn go px-5 py-3 text-sm whitespace-nowrap">{toast}</div>}
     </div>
   );
