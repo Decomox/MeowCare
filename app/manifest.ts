@@ -4,16 +4,17 @@ import type { MetadataRoute } from 'next';
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/',
-    name: 'MeowCare — Donasi Untuk Kucing Jalanan',
+    name: 'MeowCare â€” Donasi Untuk Kucing Jalanan',
     short_name: 'MeowCare',
     description: 'Patungan receh buat kasih makan kucing jalanan dengan transparan.',
     lang: 'id',
+    dir: 'ltr',
     start_url: '/',
     scope: '/',
     display: 'standalone',
-    orientation: 'portrait',
+    orientation: 'any',
     background_color: '#fff6ea',
-    theme_color: '#ff8a4c',
+    theme_color: '#fffdf8',
     categories: ['lifestyle', 'social'],
     icons: [
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

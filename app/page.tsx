@@ -4,6 +4,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { ReactNode, CSSProperties } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import Image from 'next/image';
+import 'leaflet/dist/leaflet.css';
 import {
   Heart, X, Check, Camera, Receipt, Trophy, BookOpen, Plus, Pencil, EyeOff, LogOut, Lock,
   Upload as UploadIcon, MapPin, Moon, Sun, Share2, ChevronLeft, ChevronRight
@@ -74,6 +76,9 @@ const toProof = (r: Row): Proof => ({
 
 /* ───────────────────────── Helpers ───────────────────────── */
 const rp = (n: number) => 'Rp ' + Math.round(n).toLocaleString('id-ID');
+/* Formats a raw numeric string with Indonesian thousand separators while typing. */
+const fmtNum = (v: string) => { const d = v.replace(/\D/g, ''); return d ? Number(d).toLocaleString('id-ID') : ''; };
+const parseNum = (v: string) => Number(v.replace(/\D/g, '')) || 0;
 const pctOf = (c: Cat) => Math.min(100, Math.round((c.currentRaised / c.targetAmount) * 100));
 
 /* ───────────────────────── SFX (native HTML5 Audio, zero dependencies) ───────────────────────── */
@@ -222,29 +227,30 @@ const Ic = ({ n, size = 18 }: { n: IconName; size?: number }) => {
 
 /* ───────────────────────── Styles ───────────────────────── */
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&display=swap');
-@import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
-
 :root{color-scheme:light;--bg:#fff6ea;--ink:#4a2c1d;--muted:#8a6a58;--card:#fffdf8;--soft:#ffe9d2;--pink:#ffc6d9;--mint:#c9f0d8;--a1:#ff8a4c;--a2:#ff6f9f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#1d1410;--ink:#ffe9d6;--muted:#d1b29d;--card:#2a1d17;--soft:#3a2a20;--pink:#5a2c3e;--mint:#254334}}
 :root[data-theme="dark"]{color-scheme:dark;--bg:#1d1410;--ink:#ffe9d6;--muted:#d1b29d;--card:#2a1d17;--soft:#3a2a20;--pink:#5a2c3e;--mint:#254334}
 html{scroll-padding-top:env(safe-area-inset-top,0px);scroll-behavior:smooth}
-html,body{background:var(--bg);color:var(--ink);font-family:'Quicksand','Nunito','Segoe UI',system-ui,sans-serif;font-weight:600}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--font-quicksand,'Quicksand'),'Nunito','Segoe UI',system-ui,sans-serif;font-weight:500;line-height:1.55}
+p{line-height:1.65}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--card);z-index:45}
 .muted{color:var(--muted)} .soft{background:var(--soft)}
 .card{background:var(--card);border:2.5px solid var(--ink);border-radius:28px 12px 30px 14px/14px 28px 12px 30px;box-shadow:4px 4px 0 var(--ink)}
-.chip{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 10px;border:2px solid var(--ink);border-radius:99px 60px 99px 70px;background:var(--pink)}
+.chip{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 10px;border:2px solid var(--ink);border-radius:99px;background:var(--pink)}
 .btn{font-weight:700;border:2.5px solid var(--ink);border-radius:22px 12px 24px 12px/12px 22px 12px 24px;box-shadow:3px 3px 0 var(--ink);transition:transform .15s,box-shadow .15s;cursor:pointer}
 .btn:hover{transform:translate(-1px,-2px) rotate(-1deg);box-shadow:5px 5px 0 var(--ink)}
 .btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
 .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
-.go{background:linear-gradient(120deg,var(--a1),var(--a2));color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.2)}
+:focus-visible{outline:3px solid var(--a2);outline-offset:3px;border-radius:6px}
+.btn:focus-visible,.chip:focus-visible{outline-offset:4px}
+.go{background:linear-gradient(120deg,#e8622a,#d94a80);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.25)}
 .ghost{background:var(--card);color:var(--ink)}
 .ok{background:#7ddba0;color:#143d26}.no{background:var(--pink);color:var(--ink)}
 .input{width:100%;padding:.65rem .9rem;background:var(--card);color:var(--ink);border:2.5px solid var(--ink);border-radius:16px 10px 18px 10px;outline:none;font-weight:600}
 .input:focus{box-shadow:3px 3px 0 var(--a1)}
 .frame{position:relative;aspect-ratio:1/1}
 .frame::before,.frame::after{content:"";position:absolute;top:-7%;width:30%;height:30%;background:var(--ink);clip-path:polygon(0 100%,50% 0,100% 100%)}
+.frame.none::before,.frame.none::after{display:none}
 .frame::before{left:9%;transform:rotate(-16deg)} .frame::after{right:9%;transform:rotate(16deg)}
 .blob{position:relative;z-index:1;width:100%;height:100%;overflow:hidden;border:3px solid var(--ink);border-radius:58% 42% 55% 45%/52% 56% 44% 48%;background:var(--soft)}
 .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;background:radial-gradient(circle at 30% 30%,var(--pink),var(--soft))}
@@ -282,19 +288,22 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .slide>*{width:100%;height:100%}
 .slider-btn{position:absolute;top:calc(50% - 17px);width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;z-index:2}
 .slider-dots{position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:2;pointer-events:none}
-.slider-dots button{pointer-events:auto;width:10px;height:10px;padding:0;border:2px solid var(--ink);border-radius:99px;background:var(--card);transition:width .2s,background .2s}
+.slider-dots button{pointer-events:auto;position:relative;width:10px;height:10px;padding:0;border:2px solid var(--ink);border-radius:99px;background:var(--card);transition:width .2s,background .2s}
+.slider-dots button::before{content:"";position:absolute;inset:-17px -10px}
 .slider-dots button.on{width:22px;background:var(--a2)}
 
 /* GALLERY THUMBS (admin form) */
 .thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
 .thumb{position:relative;aspect-ratio:1/1;border:2.5px solid var(--ink);border-radius:14px;overflow:hidden;background:var(--soft)}
-.thumb-x{position:absolute;top:4px;right:4px;width:24px;height:24px;padding:0;display:flex;align-items:center;justify-content:center;box-shadow:2px 2px 0 var(--ink)}
+.thumb-x{position:absolute;top:2px;right:2px;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;box-shadow:2px 2px 0 var(--ink)}
 
 /* VIDEO EMBED */
 .video{margin-top:14px;width:100%;border:3px solid var(--ink);border-radius:20px 12px 22px 12px;overflow:hidden;background:#000}
 .video iframe{width:100%;height:100%;border:0;display:block}
 .video.wide{aspect-ratio:16/9}
 .video.tall{max-width:325px;height:560px;margin-inline:auto}
+.sheet{padding-bottom:max(1rem,env(safe-area-inset-bottom))}
+.sheet-handle{width:44px;height:5px;margin:10px auto 0;border-radius:99px;background:var(--ink);opacity:.25}
 
 /* LIVE TICKER */
 @keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
@@ -315,16 +324,16 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 `;
 
 /* ───────────────────────── UI components ───────────────────────── */
-const Photo = ({ src, alt }: { src?: string | null; alt: string }) => {
+const Photo = ({ src, alt, sizes = '(max-width: 640px) 50vw, 320px', priority = false }: { src?: string | null; alt: string; sizes?: string; priority?: boolean }) => {
   const [bad, setBad] = useState(false);
   useEffect(() => setBad(false), [src]);
   return !src || bad
     ? <div className="ph" role="img" aria-label={alt}>🐱</div>
-    : <img src={src} alt={alt} loading="lazy" onError={() => setBad(true)} className="w-full h-full object-cover" />;
+    : <div className="relative w-full h-full"><Image src={src} alt={alt} fill sizes={sizes} priority={priority} onError={() => setBad(true)} className="object-cover" /></div>;
 };
 
-const CatFrame = ({ src, alt, className = '' }: { src?: string | null; alt: string; className?: string }) => (
-  <div className={'frame ' + className}><div className="blob"><Photo src={src} alt={alt} /></div></div>
+const CatFrame = ({ src, alt, className = '', sizes, priority }: { src?: string | null; alt: string; className?: string; sizes?: string; priority?: boolean }) => (
+  <div className={'frame ' + className}><div className="blob"><Photo src={src} alt={alt} sizes={sizes} priority={priority} /></div></div>
 );
 
 const HungerBar = ({ cat }: { cat: Cat }) => {
@@ -356,17 +365,49 @@ const HungerBar = ({ cat }: { cat: Cat }) => {
 };
 
 const Modal = ({ onClose, children, label }: { onClose: () => void; children: ReactNode; label: string }) => {
+  const box = useRef<HTMLDivElement>(null);
+  const opener = useRef<Element | null>(null);
+
   useEffect(() => {
-    const o = document.body.style.overflow;
+    opener.current = document.activeElement;
+    // iOS-safe scroll lock: pin the body, remember scrollY, restore on close
+    const scrollY = window.scrollY;
+    const prev = { position: document.body.style.position, top: document.body.style.top, width: document.body.style.width, overflow: document.body.style.overflow };
+    document.body.style.position = 'fixed';
+    document.body.style.top = -scrollY + 'px';
+    document.body.style.width = '100%';
     document.body.style.overflow = 'hidden';
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+
+    const k = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !box.current) return;
+      const f = box.current.querySelectorAll<HTMLElement>('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])');
+      const list = Array.from(f).filter(el => !el.hasAttribute('disabled') && el.offsetParent !== null);
+      if (!list.length) return;
+      const first = list[0], last = list[list.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', k);
-    return () => { document.body.style.overflow = o; window.removeEventListener('keydown', k); };
+    // Focus the dialog itself first so the sheet is announced before the close button
+    requestAnimationFrame(() => box.current?.focus());
+
+    return () => {
+      document.body.style.position = prev.position;
+      document.body.style.top = prev.top;
+      document.body.style.width = prev.width;
+      document.body.style.overflow = prev.overflow;
+      window.scrollTo(0, scrollY);
+      window.removeEventListener('keydown', k);
+      if (opener.current instanceof HTMLElement) opener.current.focus();
+    };
   }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3" style={{ background: 'rgba(40,20,10,.55)' }} onClick={onClose}>
-      <div role="dialog" aria-label={label} className="card pop w-full sm:max-w-lg max-h-[92vh] overflow-y-auto relative" onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} aria-label="Tutup" className="btn ghost absolute top-3 right-3 z-10 w-9 h-9 flex items-center justify-center"><Ic n="X" size={16} /></button>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-3 pt-3 sheet" style={{ background: 'rgba(40,20,10,.55)', paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }} onClick={onClose}>
+      <div ref={box} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} className="card pop w-full sm:max-w-lg max-h-[92dvh] overflow-y-auto relative" onClick={e => e.stopPropagation()}>
+        <div className="sheet-handle sm:hidden" aria-hidden="true" />
+        <button onClick={onClose} aria-label="Tutup" className="btn ghost absolute top-3 right-3 z-10 w-11 h-11 flex items-center justify-center"><Ic n="X" size={16} /></button>
         {children}
       </div>
     </div>
@@ -484,13 +525,15 @@ const LocationPicker = ({ lat, lng, onChange }: { lat: string; lng: string; onCh
     });
   }, []);
 
+  const [gpsErr, setGpsErr] = useState('');
+
   // Fungsi untuk mengambil GPS HP
   const getMyLocation = () => {
     if (!navigator.geolocation) {
-      alert('Browser HP Anda tidak mendukung GPS');
+      setGpsErr('Browser HP Anda tidak mendukung GPS.');
       return;
     }
-    setLocating(true);
+    setLocating(true); setGpsErr('');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
@@ -501,8 +544,8 @@ const LocationPicker = ({ lat, lng, onChange }: { lat: string; lng: string; onCh
         onChange(latitude.toString(), longitude.toString());
         setLocating(false);
       },
-      (err) => {
-        alert('Gagal mengambil lokasi. Pastikan izin akses Lokasi/GPS aktif di browser Anda.');
+      () => {
+        setGpsErr('Gagal mengambil lokasi. Pastikan izin akses Lokasi/GPS aktif di browser Anda.');
         setLocating(false);
       },
       { enableHighAccuracy: true } // Minta akurasi tertinggi dari HP
@@ -517,6 +560,7 @@ const LocationPicker = ({ lat, lng, onChange }: { lat: string; lng: string; onCh
           {locating ? '⏳ Melacak...' : '📍 Ambil GPS Saya'}
         </button>
       </div>
+      {gpsErr && <p className="text-xs font-bold" style={{ color: 'var(--a2)' }} role="alert">{gpsErr}</p>}
       <div ref={mapContainer} className="w-full h-48 rounded-[16px] border-[3px] map-theme overflow-hidden" style={{ borderColor: 'var(--ink)', zIndex: 1 }} />
     </div>
   );
@@ -529,7 +573,7 @@ const PayModal = ({ cat, onClose, onSubmit }: { cat: Cat; onClose: () => void; o
   const [name, setName] = useState('');
   const [rec, setRec] = useState<{ url: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const n = parseInt(amount || '0', 10);
+  const n = parseNum(amount);
   const ok = n >= 1000 && !!rec;
   return (
     <Modal onClose={onClose} label="Donasi QRIS">
@@ -547,7 +591,7 @@ const PayModal = ({ cat, onClose, onSubmit }: { cat: Cat; onClose: () => void; o
           <div className="space-y-3 mt-2">
             <div>
               <label className="text-sm font-bold">Nominal donasi (Rp)</label>
-              <input className="input mt-1 text-lg" type="number" inputMode="numeric" min="1000" value={amount} onChange={e => setAmount(e.target.value)} />
+              <input className="input mt-1 text-lg" type="text" inputMode="numeric" placeholder="Minimal 1.000" value={fmtNum(amount)} onChange={e => setAmount(fmtNum(e.target.value))} />
               <div className="flex gap-2 flex-wrap mt-2">
                 {[2000, 5000, 10000, 20000].map(v => <button key={v} className="chip" onClick={() => setAmount(String(v))}>{rp(v)}</button>)}
               </div>
@@ -889,28 +933,35 @@ const PublicView = ({ cats, donations, proofs, ledger, about, onOpen, pwa }: { c
   const stats = useMemo(() => {
     const approved = donations.filter(d => d.status === 'approved');
     const named = new Set<string>();
-    let anonymous = 0; // every anonymous donation counts as its own donor
+    let anonymousDonations = 0;
     approved.forEach(d => {
       const k = d.name.trim().toLowerCase();
-      if (!k || k === 'anonim') anonymous++; else named.add(k);
+      if (!k || k === 'anonim') anonymousDonations++; else named.add(k);
     });
-    return { total: approved.reduce((a, d) => a + d.amount, 0), donors: named.size + anonymous, feeds: proofs.length };
+    // An anonymous donation cannot be tied to a person, so it is counted as a donation, not a donor.
+    return {
+      total: approved.reduce((a, d) => a + d.amount, 0),
+      donors: named.size,
+      anonymousDonations,
+      feeds: proofs.length,
+    };
   }, [donations, proofs]);
 
   return (
     <>
-      <div className="max-w-5xl mx-auto px-5 pt-6">
+      <div className="flex flex-col">
+      <div className="max-w-5xl mx-auto px-5 pt-6" style={{ order: 2 }}>
         <div className="card px-4 py-2.5 text-sm text-center" style={{ background: 'var(--mint)' }}>
-          🐾 Telah menyalurkan <b>{rp(stats.total)}</b> dari <b>{stats.donors}</b> donatur, dan memberi makan kucing sebanyak <b>{stats.feeds}</b> kali.{' '}
+          🐾 Telah menyalurkan <b>{rp(stats.total)}</b> dari <b>{stats.donors}</b> donatur{stats.anonymousDonations > 0 ? ` (+ ${stats.anonymousDonations} anonim)` : ''}, dan memberi makan kucing sebanyak <b>{stats.feeds}</b> kali.{' '}
           <a href="#transaksi" style={{ textDecoration: 'underline' }}>Lihat buku transaksi</a>
         </div>
       </div>
 
-      <LiveTicker entries={ledger} />
+      <div style={{ order: 2 }}><LiveTicker entries={ledger} /></div>
 
-      {pwa.mode && <InstallBanner mode={pwa.mode} onInstall={pwa.install} onDismiss={pwa.dismiss} />}
+      <div style={{ order: 2 }}>{pwa.mode && <InstallBanner mode={pwa.mode} onInstall={pwa.install} onDismiss={pwa.dismiss} />}</div>
 
-      <section className="max-w-5xl mx-auto px-5 pt-10 pb-6 grid md:grid-cols-2 gap-8 items-center">
+      <section className="max-w-5xl mx-auto px-5 pt-6 pb-6 grid md:grid-cols-2 gap-8 items-center" style={{ order: 1 }}>
         <div>
           <span className="chip">🐾 100% receh, 100% nyata</span>
           <h1 className="text-4xl sm:text-5xl font-bold leading-tight mt-3">Perut kenyang,<br />hati <span style={{ color: 'var(--a2)' }}>meong</span> senang.</h1>
@@ -926,6 +977,7 @@ const PublicView = ({ cats, donations, proofs, ledger, about, onOpen, pwa }: { c
           <span className="card absolute z-20 -bottom-4 -left-2 px-3 py-1.5 text-sm font-bold" style={{ transform: 'rotate(-6deg)', background: 'var(--pink)' }}>Halo Human yang Baik Hati</span>
         </div>
       </section>
+      </div>
 
       <section id="peta" className="max-w-5xl mx-auto px-5 py-8">
         <h2 className="text-2xl font-bold flex items-center gap-2 mb-4"><Ic n="MapPin" size={24} /> Peta Kucing MeowCare</h2>
@@ -975,7 +1027,7 @@ const FeedForm = ({ cat, onClose, onFeed }: {
   const [picked, setPicked] = useState('');
   const [note, setNote] = useState('');
   const [cost, setCost] = useState('');
-  const costNum = Number(cost);
+  const costNum = parseNum(cost);
   const overspend = costNum > cat.currentRaised;
   const ok = !!photo && !!note.trim() && costNum > 0 && !overspend;
   return (
@@ -986,7 +1038,7 @@ const FeedForm = ({ cat, onClose, onFeed }: {
         <UploadField file={picked} onFile={(url, nm) => { setPhoto(url); setPicked(nm); }} label="Pilih foto bukti makan" icon="Camera" folder="proofs" />
         <div>
           <label className="text-sm font-bold">Biaya Makanan (Rp)</label>
-          <input className="input mt-1" type="number" inputMode="numeric" min="1" max={cat.currentRaised} placeholder="Misal: 15000" value={cost} onChange={e => setCost(e.target.value)} />
+          <input className="input mt-1" type="text" inputMode="numeric" placeholder="Misal: 15.000" value={fmtNum(cost)} onChange={e => setCost(fmtNum(e.target.value))} />
           <p className="text-xs muted mt-1">Tip: Jika membeli makanan secara grosir, cukup masukkan perkiraan harga per porsi makan kali ini.</p>
           {overspend && <p className="text-xs mt-1 font-bold" style={{ color: 'var(--a2)' }}>Biaya melebihi dana terkumpul ({rp(cat.currentRaised)}). Kurangi nominalnya.</p>}
           {costNum > 0 && !overspend && <p className="text-xs muted mt-1">Sisa dana setelah dipotong: {rp(cat.currentRaised - costNum)}</p>}
@@ -1004,13 +1056,13 @@ const FeedForm = ({ cat, onClose, onFeed }: {
 const CatForm = ({ cat, onClose, onSave }: { cat: Cat | null; onClose: () => void; onSave: (c: CatPayload) => void }) => {
   const [f, setF] = useState(
     cat
-      ? { name: cat.name, breed: cat.breed, age: cat.age, traits: cat.traits.join(', '), targetAmount: String(cat.targetAmount), photo: cat.photo, lat: String(cat.lat||''), lng: String(cat.lng||''), videoUrl: cat.videoUrl }
-      : { name: '', breed: '', age: '', traits: '', targetAmount: '20000', photo: '', lat: '', lng: '', videoUrl: '' },
+      ? { name: cat.name, breed: cat.breed, age: cat.age, traits: cat.traits.join(', '), targetAmount: Number(cat.targetAmount).toLocaleString('id-ID'), photo: cat.photo, lat: String(cat.lat||''), lng: String(cat.lng||''), videoUrl: cat.videoUrl }
+      : { name: '', breed: '', age: '', traits: '', targetAmount: '20.000', photo: '', lat: '', lng: '', videoUrl: '' },
   );
   const [gallery, setGallery] = useState<string[]>(cat?.gallery ?? []);
   const [picked, setPicked] = useState('');
   const set = (k: keyof typeof f, v: string) => setF(s => ({ ...s, [k]: v }));
-  const ok = f.name.trim() && Number(f.targetAmount) > 0;
+  const ok = f.name.trim() && parseNum(f.targetAmount) > 0;
   const room = MAX_GALLERY - gallery.length;
   const videoUrl = f.videoUrl.trim();
   return (
@@ -1024,7 +1076,7 @@ const CatForm = ({ cat, onClose, onSave }: { cat: Cat | null; onClose: () => voi
           <input className="input" placeholder="Umur (2 tahun)" value={f.age} onChange={e => set('age', e.target.value)} />
         </div>
         <input className="input" placeholder="Sifat, pisah koma (Manja, Preman)" value={f.traits} onChange={e => set('traits', e.target.value)} />
-        <input className="input" type="number" min="1000" placeholder="Target (Rp)" value={f.targetAmount} onChange={e => set('targetAmount', e.target.value)} />
+        <input className="input" type="text" inputMode="numeric" placeholder="Target (Rp)" value={fmtNum(f.targetAmount)} onChange={e => set('targetAmount', fmtNum(e.target.value))} />
         <LocationPicker lat={f.lat} lng={f.lng} onChange={(lat, lng) => { set('lat', lat); set('lng', lng); }} />
         <UploadField file={picked} onFile={(url, nm) => { set('photo', url); setPicked(nm); }} label="Pilih foto profil kucing" icon="Camera" folder="cats" />
 
@@ -1056,7 +1108,7 @@ const CatForm = ({ cat, onClose, onSave }: { cat: Cat | null; onClose: () => voi
             onSave({
               id: cat?.id, name: f.name.trim(), breed: f.breed.trim(), age: f.age.trim(),
               traits: f.traits.split(',').map(t => t.trim()).filter(Boolean),
-              targetAmount: Number(f.targetAmount), photo: f.photo,
+              targetAmount: parseNum(f.targetAmount), photo: f.photo,
               lat: f.lat ? Number(f.lat) : null, lng: f.lng ? Number(f.lng) : null,
               gallery, videoUrl,
             });
@@ -1104,11 +1156,12 @@ const Admin = ({ cats, donations, ledger, about, h }: { cats: Cat[]; donations: 
       {tab === 'verify' && (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm min-w-[620px]">
-            <thead><tr className="text-left muted text-xs uppercase">{['Donatur', 'Kucing', 'Nominal', 'Bukti', 'Aksi'].map(x => <th key={x} className="px-4 py-3">{x}</th>)}</tr></thead>
+            <thead><tr className="text-left muted text-xs uppercase">{['Tanggal', 'Donatur', 'Kucing', 'Nominal', 'Bukti', 'Aksi'].map(x => <th key={x} className="px-4 py-3">{x}</th>)}</tr></thead>
             <tbody>
-              {pending.length === 0 && <tr><td colSpan={5} className="p-8 text-center muted">Semua donasi sudah dicek 🎉</td></tr>}
+              {pending.length === 0 && <tr><td colSpan={6} className="p-8 text-center muted">Semua donasi sudah dicek 🎉</td></tr>}
               {pending.map(d => (
                 <tr key={d.id} className="border-t-2" style={{ borderColor: 'var(--soft)' }}>
+                  <td className="px-4 py-3 whitespace-nowrap">{new Date(d.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}</td>
                   <td className="px-4 py-3 font-bold">{d.name}</td>
                   <td className="px-4 py-3">{cats.find(x => x.id === d.catId)?.name || 'Kucing dihapus'}</td>
                   <td className="px-4 py-3 font-bold">{rp(d.amount)}</td>
@@ -1387,7 +1440,7 @@ export default function Page() {
   const payCat = cats.find(c => String(c.id) === String(payId));
 
   return (
-    <div className="min-h-screen relative">
+    <div className="min-h-[100dvh] relative">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <Header
         view={view} auth={auth} theme={theme} onToggleTheme={toggleTheme} onView={setView}
@@ -1397,7 +1450,7 @@ export default function Page() {
       {/* PERBAIKAN Z-INDEX (z-20) AGAR TIDAK TUMPANG TINDIH DENGAN FOOTER */}
       <main className="relative z-20">
         {loading ? (
-          <div className="text-center py-24 muted font-bold">Memuat data… 🐾</div>
+          <div className="max-w-5xl mx-auto px-5 py-8"><div className="grid grid-cols-2 lg:grid-cols-3 gap-5">{[0,1,2,3,4,5].map(i => (<div key={i} className="card p-4 pt-6 animate-pulse" aria-hidden="true"><div className="w-3/4 mx-auto aspect-square rounded-full bg-[var(--soft)]" /><div className="h-4 mt-4 rounded bg-[var(--soft)]" /><div className="h-3 mt-2 w-2/3 rounded bg-[var(--soft)]" /></div>))}</div><div className="sr-only">Memuat data… 🐾</div></div>
         ) : view === 'public' ? (
           <PublicView cats={cats.filter(c => c.isActive)} donations={donations} proofs={proofs} ledger={ledger} about={about} onOpen={openProfile} pwa={pwa} />
         ) : auth ? (
@@ -1411,7 +1464,9 @@ export default function Page() {
 
       {openCat && <ProfileModal cat={openCat} proofs={proofs} onClose={() => setOpenId(null)} onFeed={() => setPayId(openCat.id)} onToast={setToast} />}
       {payCat && <PayModal cat={payCat} onClose={() => setPayId(null)} onSubmit={submit} />}
-      {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] pop btn go px-5 py-3 text-sm whitespace-nowrap">{toast}</div>}
+      <div aria-live="polite" aria-atomic="true" className="fixed left-1/2 -translate-x-1/2 z-[60] pointer-events-none" style={{ bottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
+        {toast && <div className="pop btn go px-5 py-3 text-sm whitespace-nowrap">{toast}</div>}
+      </div>
     </div>
   );
 }
